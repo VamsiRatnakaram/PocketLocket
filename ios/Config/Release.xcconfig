@@ -1,0 +1,5 @@
+// Release build configuration.
+#include? "Secrets.xcconfig"
+
+SWIFT_COMPILATION_MODE = wholemodule
+SWIFT_OPTIMIZATION_LEVEL = -O
