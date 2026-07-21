@@ -81,17 +81,17 @@ enum KeychainStore {
     }
 
     static func getProtected(_ key: String, reason: String, context: LAContext? = nil) throws -> Data? {
-        var query: [String: Any] = [
+        let authenticationContext = context ?? LAContext()
+        authenticationContext.localizedReason = reason
+
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseOperationPrompt as String: reason,
+            kSecUseAuthenticationContext as String: authenticationContext,
         ]
-        if let context {
-            query[kSecUseAuthenticationContext as String] = context
-        }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)

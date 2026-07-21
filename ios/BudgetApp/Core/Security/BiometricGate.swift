@@ -15,6 +15,12 @@ final class BiometricGate {
 
     var state: State = .locked
 
+    init() {
+        if Self.isRunningTests {
+            state = .unlocked
+        }
+    }
+
     /// A shared context: a successful unlock can be briefly reused to read the
     /// Keychain-protected bank token without prompting a second time.
     let authenticationContext: LAContext = {
@@ -27,6 +33,11 @@ final class BiometricGate {
     var isUnlocked: Bool { state == .unlocked || state == .unavailable }
 
     func authenticate() async {
+        if Self.isRunningTests {
+            state = .unlocked
+            return
+        }
+
         var error: NSError?
         let policy: LAPolicy = .deviceOwnerAuthentication
         guard authenticationContext.canEvaluatePolicy(policy, error: &error) else {
@@ -44,5 +55,10 @@ final class BiometricGate {
 
     func lock() {
         if state == .unlocked { state = .locked }
+    }
+
+    private static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
     }
 }

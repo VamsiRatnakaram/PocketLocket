@@ -7,7 +7,9 @@ struct SettingsView: View {
 
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage("ringStyle") private var ringStyleRaw: String = RingStyle.donut.rawValue
+    @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.system.rawValue
     @State private var simplefinConnected = false
+    @State private var showSimpleFIN = false
     @State private var showBackup = false
 
     var body: some View {
@@ -38,13 +40,28 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                 }
 
-                Section("Connections") {
-                    HStack {
-                        Label("SimpleFIN", systemImage: "arrow.triangle.2.circlepath")
-                        Spacer()
-                        Text(simplefinConnected ? "Connected" : "Not connected")
-                            .foregroundStyle(.secondary)
+                Section("Appearance") {
+                    Picker("Theme", selection: $appearanceModeRaw) {
+                        ForEach(AppearanceMode.allCases) { mode in
+                            Text(mode.label).tag(mode.rawValue)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Connections") {
+                    Button { showSimpleFIN = true } label: {
+                        HStack {
+                            Label("SimpleFIN", systemImage: "arrow.triangle.2.circlepath")
+                            Spacer()
+                            Text(simplefinConnected ? "Connected" : "Not connected")
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
                     if simplefinConnected {
                         Button(role: .destructive) {
                             SimpleFINStore.clear()
@@ -83,6 +100,9 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showSimpleFIN) {
+                SimpleFINConnectView { simplefinConnected = true }
             }
             .sheet(isPresented: $showBackup) { BackupView() }
             .onAppear { simplefinConnected = SimpleFINStore.isConnected }

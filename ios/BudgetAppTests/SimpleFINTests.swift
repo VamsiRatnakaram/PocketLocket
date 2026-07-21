@@ -33,6 +33,18 @@ final class SimpleFINTests: XCTestCase {
         XCTAssertEqual(set.accounts.first?.transactions?.first?.amount, "-4.5")
     }
 
+    func testDecodesOptionalProviderCategory() throws {
+        let json = """
+        {"errors":[],"accounts":[
+          {"id":"a1","transactions":[
+            {"id":"t1","amount":"-4.50","description":"Coffee","extra":{"category":"restaurants"}}
+          ]}
+        ]}
+        """
+        let set = try JSONDecoder().decode(SFAccountSet.self, from: Data(json.utf8))
+        XCTAssertEqual(set.accounts.first?.transactions?.first?.category, "restaurants")
+    }
+
     func testAmountSignConversion() {
         // SimpleFIN: negative = money out; app: positive = spend.
         XCTAssertEqual(SimpleFINMapper.appAmount(from: "-10.00"), 10.0, accuracy: 0.001)
@@ -42,6 +54,8 @@ final class SimpleFINTests: XCTestCase {
     func testInferType() {
         XCTAssertEqual(SimpleFINMapper.inferType(name: "Chase Credit Card"), "credit")
         XCTAssertEqual(SimpleFINMapper.inferType(name: "Amex Platinum"), "credit")
+      XCTAssertEqual(SimpleFINMapper.inferType(name: "Auto Loan"), "loan")
+      XCTAssertEqual(SimpleFINMapper.inferType(name: "Home Mortgage"), "loan")
         XCTAssertEqual(SimpleFINMapper.inferType(name: "SimpleFIN Checking"), "depository")
     }
 }

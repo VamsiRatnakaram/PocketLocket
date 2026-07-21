@@ -81,7 +81,11 @@ struct TransactionDetailView: View {
         }
     }
 
-    private var matchKey: String { txn.merchantName ?? txn.name }
+    private var matchKey: String {
+        let descriptor = txn.merchantName ?? txn.name
+        let cleaned = MerchantHeuristics.ruleMatchText(for: descriptor)
+        return cleaned.isEmpty ? descriptor : cleaned
+    }
 
     private var amountText: String {
         let magnitude = CurrencyFormatter.string(abs(txn.amount), code: txn.isoCurrencyCode)

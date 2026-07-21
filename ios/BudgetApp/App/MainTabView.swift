@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct MainTabView: View {
     @State private var selection: Tab = MainTabView.initialTab()

@@ -26,6 +26,30 @@ final class CategoryMapperTests: XCTestCase {
         XCTAssertEqual(CategoryMapper.map(primary: nil), .other)
     }
 
+    func testRecognizesSimpleFINStyleCategoryNames() {
+        XCTAssertEqual(CategoryMapper.recognizedCategory(primary: "restaurants"), .food)
+        XCTAssertEqual(CategoryMapper.recognizedCategory(primary: "gas-stations"), .transport)
+        XCTAssertEqual(CategoryMapper.recognizedCategory(primary: "utilities"), .housing)
+        XCTAssertNil(CategoryMapper.recognizedCategory(primary: "merchant_custom_label"))
+    }
+
+    func testRecognizesDetailedProviderCategories() {
+        XCTAssertEqual(
+            CategoryMapper.recognizedCategory(
+                primary: nil,
+                detailed: "RENT_AND_UTILITIES_GAS_AND_ELECTRICITY"
+            ),
+            .housing
+        )
+        XCTAssertEqual(
+            CategoryMapper.recognizedCategory(
+                primary: "restaurants",
+                detailed: "institution_specific_detail"
+            ),
+            .food
+        )
+    }
+
     func testIncomeAndTransferAreNotSpending() {
         XCTAssertFalse(SpendCategory.income.isSpending)
         XCTAssertFalse(SpendCategory.transfer.isSpending)

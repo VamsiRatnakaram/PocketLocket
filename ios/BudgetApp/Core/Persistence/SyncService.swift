@@ -44,6 +44,7 @@ final class SyncService {
                     pending: txn.pending ?? false,
                     accountId: accountId,
                     currency: account.currency ?? "USD",
+                    categoryPrimary: txn.category,
                     dedupeIndex: &dedupeIndex,
                     context: context
                 )
@@ -70,7 +71,7 @@ final class SyncService {
         }
     }
 
-    private func upsertLocalTxn(id: String, name: String, amount: Double, date: Date, pending: Bool, accountId: String, currency: String, dedupeIndex: inout [String: String], context: ModelContext) {
+    private func upsertLocalTxn(id: String, name: String, amount: Double, date: Date, pending: Bool, accountId: String, currency: String, categoryPrimary: String?, dedupeIndex: inout [String: String], context: ModelContext) {
         let existing = (try? context.fetch(
             FetchDescriptor<TransactionRecord>(predicate: #Predicate { $0.plaidTransactionId == id })
         ))?.first
@@ -82,6 +83,7 @@ final class SyncService {
             existing.pending = pending
             existing.accountId = accountId
             existing.isoCurrencyCode = currency
+            existing.categoryPrimary = categoryPrimary
         } else {
             // Skip a transaction already imported from a statement for the same day/amount.
             if TransactionDedup.isCrossSourceDuplicate(id: id, date: date, amount: amount, name: name, in: dedupeIndex) {
@@ -90,7 +92,7 @@ final class SyncService {
             context.insert(TransactionRecord(
                 id: id, plaidTransactionId: id, name: name, merchantName: name,
                 amount: amount, isoCurrencyCode: currency, date: date, pending: pending,
-                categoryPrimary: nil, categoryDetailed: nil, logoURL: nil, accountId: accountId
+                categoryPrimary: categoryPrimary, categoryDetailed: nil, logoURL: nil, accountId: accountId
             ))
             dedupeIndex[TransactionDedup.key(date: date, amount: amount, name: name)] = TransactionDedup.source(of: id)
         }

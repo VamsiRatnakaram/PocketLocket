@@ -23,6 +23,27 @@ final class CategoryResolverTests: XCTestCase {
         XCTAssertEqual(category, .entertainment)
     }
 
+    func testRecognizedProviderCategoryBeatsHeuristic() {
+        let category = CategoryResolver.resolve(
+            name: "SHELL OIL 4567",
+            merchant: nil,
+            plaidPrimary: "groceries",
+            rules: []
+        )
+        XCTAssertEqual(category, .groceries)
+    }
+
+    func testUserRuleIgnoresDescriptorCaseAndPunctuation() {
+        let rule = CategoryRule(matchText: "Maria's Market", category: .groceries)
+        let category = CategoryResolver.resolve(
+            name: "MARIAS MARKET #27",
+            merchant: nil,
+            plaidPrimary: nil,
+            rules: [rule]
+        )
+        XCTAssertEqual(category, .groceries)
+    }
+
     func testFallsBackToPlaidWhenNoRuleOrHeuristic() {
         let category = CategoryResolver.resolve(
             name: "Blorp 4211",

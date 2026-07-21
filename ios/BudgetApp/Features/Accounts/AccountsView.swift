@@ -12,19 +12,17 @@ struct AccountsView: View {
     @State private var errorMessage: String?
     @State private var isSyncing = false
 
-    private func isAsset(_ account: AccountRecord) -> Bool {
-        switch account.type {
-        case "credit", "loan": return false
-        default: return true
-        }
-    }
-
     private func isIncluded(_ account: AccountRecord) -> Bool {
         !SpendingAccountFilter.excludedIds(from: excludedAccountsRaw).contains(account.id)
     }
-    private var assets: Double { accounts.filter { isAsset($0) }.reduce(0) { $0 + $1.currentBalance } }
-    private var liabilities: Double { accounts.filter { !isAsset($0) }.reduce(0) { $0 + $1.currentBalance } }
-    private var netWorth: Double { assets - liabilities }
+    private var balanceSummary: AccountBalanceSummary.Totals {
+        AccountBalanceSummary.totals(for: accounts.map {
+            AccountBalanceSummary.Account(type: $0.type, balance: $0.currentBalance)
+        })
+    }
+    private var assets: Double { balanceSummary.assets }
+    private var liabilities: Double { balanceSummary.liabilities }
+    private var netWorth: Double { balanceSummary.netWorth }
 
     private var importAlertBinding: Binding<Bool> {
         Binding(get: { importMessage != nil }, set: { if !$0 { importMessage = nil } })

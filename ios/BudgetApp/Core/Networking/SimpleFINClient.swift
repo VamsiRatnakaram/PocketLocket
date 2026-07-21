@@ -36,8 +36,9 @@ struct SFTxn: Decodable {
     let amount: String
     let description: String?
     let pending: Bool?
+    let category: String?
 
-    enum CodingKeys: String, CodingKey { case id, posted, amount, description, pending }
+    enum CodingKeys: String, CodingKey { case id, posted, amount, description, pending, extra }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -53,7 +54,12 @@ struct SFTxn: Decodable {
         }
         description = try? container.decode(String.self, forKey: .description)
         pending = try? container.decode(Bool.self, forKey: .pending)
+        category = (try? container.decode(SFTxnExtra.self, forKey: .extra))?.category
     }
+}
+
+private struct SFTxnExtra: Decodable {
+    let category: String?
 }
 
 /// Pure helpers (unit-testable).
@@ -68,6 +74,10 @@ enum SimpleFINMapper {
         if lower.contains("credit") || lower.contains("card") || lower.contains("amex")
             || lower.contains("visa") || lower.contains("mastercard") {
             return "credit"
+        }
+        if lower.contains("loan") || lower.contains("mortgage") || lower.contains("heloc")
+            || lower.contains("line of credit") || lower.contains("auto finance") {
+            return "loan"
         }
         return "depository"
     }

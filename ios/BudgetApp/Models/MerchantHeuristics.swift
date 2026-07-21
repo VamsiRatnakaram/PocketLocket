@@ -2,8 +2,9 @@ import Foundation
 
 /// Built-in merchant → category guesses so auto-categorization feels smart out
 /// of the box. Applied after user rules and before any provider category.
-/// Keywords are matched (lowercased, first match wins) against "merchant + name",
-/// so more specific / higher-priority entries are listed first.
+/// Phrases are matched on complete descriptor tokens, so `rent` cannot match a
+/// merchant such as "Brent's Bistro". More specific / higher-priority entries
+/// are listed first.
 enum MerchantHeuristics {
     static let table: [(keyword: String, category: SpendCategory)] = [
         // 1) Transfers, card payments & investments — NEVER counted as spend.
@@ -34,7 +35,8 @@ enum MerchantHeuristics {
         ("uber eats", .food), ("amazon prime", .services), ("amazon fresh", .groceries),
         ("apple store", .shopping), ("apple.com/bill", .services), ("apple music", .entertainment),
         ("google one", .services), ("microsoft 365", .services), ("whole foods", .groceries),
-        ("trader joe", .groceries), ("sam's club", .shopping), ("in-n-out", .food),
+        ("wholefoods", .groceries), ("trader joe", .groceries), ("traderjoes", .groceries),
+        ("sam's club", .shopping), ("in-n-out", .food), ("in n out", .food),
         ("chick-fil", .food), ("five guys", .food), ("shake shack", .food),
         ("panda express", .food), ("raising cane", .food), ("jersey mike", .food),
         ("jimmy john", .food), ("taco bell", .food), ("burger king", .food),
@@ -86,16 +88,24 @@ enum MerchantHeuristics {
 
         // 7) Food & dining.
         ("starbucks", .food), ("dunkin", .food), ("peet's", .food), ("dutch bros", .food),
-        ("mcdonald", .food), ("wendy", .food), ("chipotle", .food), ("popeyes", .food),
+        ("mcdonald", .food), ("mcdonalds", .food), ("wendy", .food), ("chipotle", .food), ("popeyes", .food),
         ("subway", .food), ("domino", .food), ("sweetgreen", .food), ("panera", .food),
         ("whataburger", .food), ("culver", .food), ("denny", .food), ("ihop", .food),
         ("applebee", .food), ("chili's", .food), ("outback", .food), ("red lobster", .food),
-        ("doordash", .food), ("grubhub", .food), ("postmates", .food), ("instacart", .groceries),
+        ("doordash", .food), ("grubhub", .food), ("postmates", .food), ("7-eleven", .food),
+        ("wawa", .food), ("sheetz", .food), ("instacart", .groceries),
         ("safeway", .groceries), ("kroger", .groceries), ("publix", .groceries), ("aldi", .groceries),
         ("wegmans", .groceries), ("sprouts", .groceries), ("food lion", .groceries), ("albertsons", .groceries),
-        ("ralphs", .groceries), ("h-e-b", .groceries), ("grocery", .groceries), ("restaurant", .food),
-        ("coffee", .food), ("cafe", .food), ("pizzeria", .food), ("sushi", .food),
-        ("taqueria", .food), ("bakery", .food),
+        ("ralphs", .groceries), ("h-e-b", .groceries), ("h mart", .groceries), ("winco", .groceries),
+        ("meijer", .groceries), ("lidl", .groceries), ("giant eagle", .groceries),
+        ("market basket", .groceries), ("shoprite", .groceries), ("hannaford", .groceries),
+        ("piggly wiggly", .groceries), ("stater bros", .groceries), ("smart final", .groceries),
+        ("win dixie", .groceries), ("grocery", .groceries),
+        ("restaurant", .food), ("grill", .food), ("bistro", .food), ("bar", .food),
+        ("pub", .food), ("tavern", .food), ("eatery", .food), ("kitchen", .food),
+        ("cantina", .food), ("diner", .food), ("steakhouse", .food), ("bbq", .food),
+        ("brewery", .food), ("coffee", .food), ("cafe", .food), ("pizzeria", .food),
+        ("sushi", .food), ("taqueria", .food), ("bakery", .food),
 
         // 8) Shopping / retail.
         ("amazon", .shopping), ("target", .shopping), ("walmart", .shopping), ("costco", .shopping),
@@ -134,20 +144,185 @@ enum MerchantHeuristics {
         ("klarna", .fees), ("afterpay", .fees), ("auto loan", .fees), ("bank fee", .fees),
     ]
 
+    // High-confidence terms that are intentionally considered after the legacy
+    // table. This lets precise bank-transfer and well-known merchant rules win
+    // before a broader sector or long-tail merchant match.
+    private static let extendedTable: [(keyword: String, category: SpendCategory)] = [
+        // Food & groceries.
+        ("jamba juice", .food), ("smoothie king", .food), ("cold stone", .food),
+        ("baskin robbins", .food), ("crumbl", .food), ("insomnia cookies", .food),
+        ("dairy queen", .food), ("wingstop", .food), ("kfc", .food), ("arby", .food),
+        ("sonic drive", .food), ("zaxby", .food), ("qdoba", .food), ("moe s southwest", .food),
+        ("noodles company", .food), ("pf chang", .food), ("cava", .food),
+        ("food hall", .food), ("food truck", .food), ("juice bar", .food),
+        ("ice cream", .food), ("gelato", .food), ("ramen", .food), ("pho", .food),
+        ("fried chicken", .food), ("wings", .food),
+        ("hello fresh", .groceries), ("hellofresh", .groceries), ("everyplate", .groceries),
+        ("home chef", .groceries), ("factor meals", .groceries), ("butcherbox", .groceries),
+        ("thrive market", .groceries), ("misfits market", .groceries), ("99 ranch", .groceries),
+        ("fresh thyme", .groceries), ("natural grocers", .groceries), ("harris teeter", .groceries),
+        ("vons", .groceries), ("giant food", .groceries), ("acme markets", .groceries),
+        ("supermarket", .groceries), ("farmers market", .groceries), ("meat market", .groceries),
+        ("produce market", .groceries),
+
+        // Retail.
+        ("rei", .shopping), ("patagonia", .shopping), ("the north face", .shopping),
+        ("arc'teryx", .shopping), ("barnes and noble", .shopping), ("barnes & noble", .shopping),
+        ("office max", .shopping), ("homegoods", .shopping), ("ross dress", .shopping),
+        ("joann fabrics", .shopping), ("lego", .shopping), ("groupon", .shopping),
+        ("department store", .shopping), ("sporting goods", .shopping), ("office supplies", .shopping),
+        ("pet supplies", .shopping), ("jewelry", .shopping), ("jewellery", .shopping),
+
+        // Housing and utilities.
+        ("dominion energy", .housing), ("xcel energy", .housing), ("pseg", .housing),
+        ("eversource", .housing), ("firstenergy", .housing), ("georgia power", .housing),
+        ("florida power", .housing), ("astound broadband", .housing), ("cox communications", .housing),
+        ("rentcafe", .housing), ("appfolio", .housing), ("buildium", .housing),
+        ("adt security", .housing), ("vivint", .housing), ("property management", .housing),
+        ("homeowners association", .housing), ("hoa payment", .housing), ("condo fee", .housing),
+        ("lease payment", .housing), ("rent payment", .housing), ("mortgage payment", .housing),
+        ("electric bill", .housing), ("water utility", .housing), ("trash service", .housing),
+        ("home security", .housing),
+
+        // Transport and travel.
+        ("bp", .transport), ("mobil", .transport), ("marathon", .transport), ("murphy usa", .transport),
+        ("racetrac", .transport), ("love's travel", .transport), ("citi bike", .transport),
+        ("zipcar", .transport), ("chargepoint", .transport), ("electrify america", .transport),
+        ("evgo", .transport), ("parkwhiz", .transport), ("spothero", .transport),
+        ("discount tire", .transport), ("firestone", .transport), ("midas", .transport),
+        ("valvoline", .transport), ("ev charging", .transport), ("charging station", .transport),
+        ("oil change", .transport), ("auto repair", .transport), ("tire service", .transport),
+        ("allegiant", .travel), ("sun country", .travel), ("four seasons", .travel),
+        ("ritz carlton", .travel), ("westin", .travel), ("courtyard", .travel),
+        ("hampton inn", .travel), ("residence inn", .travel), ("motel 6", .travel),
+        ("la quinta", .travel), ("wyndham", .travel), ("carnival cruise", .travel),
+        ("norwegian cruise", .travel), ("budget rent", .travel), ("dollar rent", .travel),
+        ("thrifty car", .travel), ("alamo rent", .travel), ("sixt", .travel),
+        ("lodging", .travel), ("vacation rental", .travel), ("rental car", .travel),
+
+        // Entertainment and health.
+        ("seatgeek", .entertainment), ("tickpick", .entertainment), ("vivid seats", .entertainment),
+        ("eventbrite", .entertainment), ("topgolf", .entertainment), ("bowlero", .entertainment),
+        ("movie theater", .entertainment), ("live music", .entertainment), ("concert tickets", .entertainment),
+        ("art museum", .entertainment),
+        ("betterhelp", .health), ("talkspace", .health), ("teladoc", .health), ("mdlive", .health),
+        ("doctor on demand", .health), ("headspace", .health), ("calm app", .health),
+        ("invisalign", .health), ("physical therapy", .health), ("mental health", .health),
+        ("health clinic", .health), ("medical center", .health), ("vision care", .health),
+        ("prescription", .health),
+
+        // Professional, home, and digital services.
+        ("turbotax", .services), ("h&r block", .services), ("taxact", .services),
+        ("legalzoom", .services), ("roto rooter", .services), ("mr rooter", .services),
+        ("taskrabbit", .services), ("molly maid", .services), ("the maids", .services),
+        ("handy", .services), ("rover", .services), ("pet grooming", .services),
+        ("dog grooming", .services), ("wix", .services), ("webflow", .services),
+        ("shopify", .services), ("mailchimp", .services), ("constant contact", .services),
+        ("expressvpn", .services), ("surfshark", .services), ("bitwarden", .services),
+        ("lastpass", .services), ("liberty mutual", .services), ("lemonade insurance", .services),
+        ("plumbing", .services), ("electrician", .services), ("hvac", .services),
+        ("locksmith", .services), ("house cleaning", .services), ("web hosting", .services),
+        ("tax preparation", .services),
+
+        // Fees, credit, and loans.
+        ("sezzle", .fees), ("splitit", .fees), ("paypal pay later", .fees),
+        ("fedloan", .fees), ("mohela", .fees), ("earnest", .fees), ("lendingclub", .fees),
+        ("lending club", .fees), ("upstart", .fees), ("prosper", .fees), ("equifax", .fees),
+        ("experian", .fees), ("transunion", .fees), ("lifelock", .fees), ("identityguard", .fees),
+        ("identity guard", .fees), ("credit report", .fees), ("identity protection", .fees),
+        ("payment plan", .fees), ("installment", .fees),
+    ]
+
+    private static let tokenizedTable = (MerchantHeuristics.table + MerchantHeuristics.extendedTable).map { entry in
+        (tokens: MerchantHeuristics.tokens(in: entry.keyword), category: entry.category)
+    }
+
+    private static let descriptorPrefixes: [[String]] = [
+        ["debit", "card", "purchase"], ["card", "purchase"], ["checkcard"], ["pos"],
+        ["sq"], ["tst"], ["paypal"], ["pp"], ["stripe"], ["clover"],
+    ]
+
+    private static let processorFallbacks: [(tokens: [String], category: SpendCategory)] = [
+        // Toast is dedicated to restaurants, unlike Square, PayPal, and Stripe.
+        (["tst"], .food), (["toast"], .food),
+    ]
+
     // Memoize lookups: the same merchant strings recur across many transactions
     // and across every view re-render, so caching keeps categorization O(1) on
     // repeat and removes the recompute lag when rules or data change.
-    private static var cache: [String: SpendCategory?] = [:]
+    private enum CachedCategory {
+        case match(SpendCategory)
+        case unmatched
+    }
+
+    private static var cache: [String: CachedCategory] = [:]
+
+    static func normalized(_ value: String) -> String {
+        tokens(in: value).joined()
+    }
+
+    /// A reusable key for a merchant-specific user rule. It removes known
+    /// payment-processor prefixes and trailing store/terminal identifiers while
+    /// keeping the meaningful merchant tokens intact.
+    static func ruleMatchText(for descriptor: String) -> String {
+        var tokens = tokens(in: descriptor)
+        while let prefix = descriptorPrefixes.first(where: { tokens.starts(with: $0) }) {
+            tokens.removeFirst(prefix.count)
+        }
+        while let last = tokens.last, last.allSatisfy(\.isNumber) {
+            tokens.removeLast()
+        }
+        return tokens.joined(separator: " ")
+    }
+
+    static func matches(_ phrase: String, in descriptor: String) -> Bool {
+        contains(tokens(in: phrase), in: tokens(in: descriptor))
+    }
+
+    private static func tokens(in value: String) -> [String] {
+        let folded = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        var tokenized = ""
+        for scalar in folded.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) || scalar == "&" {
+                tokenized.unicodeScalars.append(scalar)
+            } else {
+                tokenized.append(" ")
+            }
+        }
+        return tokenized.split(whereSeparator: \ .isWhitespace).map(String.init)
+    }
+
+    private static func contains(_ phrase: [String], in descriptor: [String]) -> Bool {
+        guard !phrase.isEmpty, phrase.count <= descriptor.count else { return false }
+        if descriptor.contains(phrase.joined()) { return true }
+        for start in 0...(descriptor.count - phrase.count) {
+            if Array(descriptor[start..<(start + phrase.count)]) == phrase {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func category(forTokens tokens: [String]) -> SpendCategory? {
+        for entry in tokenizedTable where contains(entry.tokens, in: tokens) {
+            return entry.category
+        }
+        for fallback in processorFallbacks where contains(fallback.tokens, in: tokens) {
+            return fallback.category
+        }
+        return nil
+    }
 
     static func category(for haystack: String) -> SpendCategory? {
-        let h = haystack.lowercased()
-        if let cached = cache[h] { return cached }
-        var match: SpendCategory?
-        for entry in table where h.contains(entry.keyword) {
-            match = entry.category
-            break
+        let cacheKey = normalized(haystack)
+        if let cached = cache[cacheKey] {
+            switch cached {
+            case let .match(category): return category
+            case .unmatched: return nil
+            }
         }
-        cache[h] = match
+        let match = category(forTokens: tokens(in: haystack))
+        cache[cacheKey] = match.map(CachedCategory.match) ?? .unmatched
         return match
     }
 
@@ -159,7 +334,6 @@ enum MerchantHeuristics {
     ]
 
     static func isLikelySubscription(_ haystack: String) -> Bool {
-        let h = haystack.lowercased()
-        return subscriptionKeywords.contains { h.contains($0) }
+        subscriptionKeywords.contains { matches($0, in: haystack) }
     }
 }
