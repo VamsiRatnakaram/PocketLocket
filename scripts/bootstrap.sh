@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Budget App bootstrap — installs the tooling needed to build the app and
+# PocketLocket bootstrap — installs the tooling needed to build the app and
 # generates the Xcode project. Safe to re-run.
 #
 # Usage:  bash scripts/bootstrap.sh
@@ -10,7 +10,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-echo "==> Budget App bootstrap"
+echo "==> PocketLocket bootstrap"
 
 # 1) Homebrew ---------------------------------------------------------------
 if ! command -v brew >/dev/null 2>&1; then
@@ -45,7 +45,7 @@ cat <<'EOF'
 ==> Done!
 
 Next steps:
-  1. Open:   open ios/BudgetApp.xcodeproj   (then press Run)
+  1. Open:   open ios/PocketLocket.xcodeproj   (then press Run)
   2. Add data in the app: "Auto-sync (SimpleFIN)" or import an OFX/QFX/CSV
      statement. Everything is stored locally on your device — no backend.
 EOF

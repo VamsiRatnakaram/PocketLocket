@@ -1,4 +1,4 @@
-name: BudgetApp
+name: PocketLocket
 options:
   deploymentTarget:
     iOS: "17.0"
@@ -23,25 +23,26 @@ configFiles:
   Release: Config/Release.xcconfig
 
 targets:
-  BudgetApp:
+  PocketLocket:
     type: application
     platform: iOS
     sources:
-      - path: BudgetApp
+      - path: PocketLocket
     settings:
       base:
-        INFOPLIST_FILE: BudgetApp/Resources/Info.plist
+        PRODUCT_NAME: PocketLocket
+        INFOPLIST_FILE: PocketLocket/Resources/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1"
 
-  BudgetAppTests:
+  PocketLocketTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: BudgetAppTests
+      - path: PocketLocketTests
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
-      - target: BudgetApp
+      - target: PocketLocket

@@ -98,3 +98,20 @@ final class SyncService {
         }
     }
 }
+
+@MainActor
+enum SimpleFINDataStore {
+    static func deleteSyncedData(in context: ModelContext) throws {
+        let transactions = try context.fetch(FetchDescriptor<TransactionRecord>())
+        for transaction in transactions where transaction.plaidTransactionId.hasPrefix("sf-") {
+            context.delete(transaction)
+        }
+
+        let accounts = try context.fetch(FetchDescriptor<AccountRecord>())
+        for account in accounts where account.plaidAccountId.hasPrefix("sf-") {
+            context.delete(account)
+        }
+
+        try context.save()
+    }
+}

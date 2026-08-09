@@ -1,5 +1,5 @@
 import XCTest
-@testable import BudgetApp
+@testable import PocketLocket
 
 @MainActor
 final class TransactionDedupTests: XCTestCase {

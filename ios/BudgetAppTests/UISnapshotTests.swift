@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-@testable import BudgetApp
+@testable import PocketLocket
 
 /// Renders the ring components with sample data using `ImageRenderer`, which
 /// both verifies they build/lay out without crashing and produces PNGs in /tmp

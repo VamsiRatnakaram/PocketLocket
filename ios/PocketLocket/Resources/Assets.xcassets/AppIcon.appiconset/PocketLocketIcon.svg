@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#142A52"/>
+  <path d="M142 192C142 136 188 90 244 90H780C836 90 882 136 882 192V832C882 888 836 934 780 934H244C188 934 142 888 142 832Z" fill="#203B68"/>
+  <path d="M248 403H776V652C776 787 666 896 532 896H492C358 896 248 787 248 652Z" fill="#55CDBD"/>
+  <path d="M285 447H739V646C739 763 644 858 527 858H497C380 858 285 763 285 646Z" fill="none" stroke="#FFFDF8" stroke-width="18" stroke-linecap="round" stroke-dasharray="2 38"/>
+  <path d="M350 425V348C350 258 423 185 512 185C601 185 674 258 674 348V425" fill="none" stroke="#FFFDF8" stroke-width="70" stroke-linecap="round"/>
+  <rect x="306" y="383" width="412" height="302" rx="68" fill="#F5C451"/>
+  <path d="M306 452C306 414 337 383 374 383H650C687 383 718 414 718 452V476H306Z" fill="#FFE08A"/>
+  <circle cx="512" cy="523" r="48" fill="#142A52"/>
+  <path d="M482 548H542L560 625H464Z" fill="#142A52"/>
+  <path d="M248 546C326 586 412 606 512 606C612 606 698 586 776 546V652C776 787 666 896 532 896H492C358 896 248 787 248 652Z" fill="#55CDBD"/>
+  <path d="M285 605V646C285 763 380 858 497 858H527C644 858 739 763 739 646V605" fill="none" stroke="#FFFDF8" stroke-width="18" stroke-linecap="round" stroke-dasharray="2 38"/>
+</svg>

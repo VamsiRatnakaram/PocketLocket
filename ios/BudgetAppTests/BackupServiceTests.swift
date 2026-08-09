@@ -1,6 +1,6 @@
 import XCTest
 import SwiftData
-@testable import BudgetApp
+@testable import PocketLocket
 
 @MainActor
 final class BackupServiceTests: XCTestCase {

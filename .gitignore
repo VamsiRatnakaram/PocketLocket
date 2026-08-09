@@ -5,8 +5,11 @@
 tools/
 
 # iOS — generated project & local secrets
-ios/BudgetApp.xcodeproj/
+ios/PocketLocket.xcodeproj/
 ios/Config/Secrets.xcconfig
+
+# Local release checklist; contains account-specific App Store notes.
+docs/LOCAL_TESTFLIGHT_RELEASE.md
 
 # Xcode / SwiftPM build artifacts
 **/DerivedData/

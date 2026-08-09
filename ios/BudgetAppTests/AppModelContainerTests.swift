@@ -1,6 +1,6 @@
 import SwiftData
 import XCTest
-@testable import BudgetApp
+@testable import PocketLocket
 
 final class AppModelContainerTests: XCTestCase {
     @MainActor

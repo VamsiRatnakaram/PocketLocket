@@ -1,4 +1,4 @@
-# Budget App
+# PocketLocket
 
 A private, **on-device** personal budgeting app for iPhone. The home screen is a
 **spend-categorizing ring**. All of your financial data is stored **only on your
@@ -34,7 +34,7 @@ Two ways to get bank data, both fully on-device:
 ios/                     SwiftUI app (Xcode project generated via XcodeGen)
   project.yml            project definition
   Config/*.xcconfig      build settings (Secrets.xcconfig is optional + git-ignored)
-  BudgetApp/
+  PocketLocket/
     App/                 Entry point, RootView router, tabs, lock screen
     Core/
       Security/          KeychainStore, BiometricGate, SimpleFINStore
@@ -45,7 +45,7 @@ ios/                     SwiftUI app (Xcode project generated via XcodeGen)
                          AccountRecord, TransactionRecord, CategoryRule, …
     Features/            Home, Transactions, Accounts, Connect, Save, Settings
     Resources/           Info.plist, Assets
-  BudgetAppTests/        unit + snapshot tests
+  PocketLocketTests/     unit + snapshot tests
 scripts/bootstrap.sh     installs tooling + generates the project
 docs/ARCHITECTURE.md     how it all fits together
 ```
@@ -72,7 +72,7 @@ bash scripts/bootstrap.sh
 ## Run it
 
 ```bash
-open ios/BudgetApp.xcodeproj
+open ios/PocketLocket.xcodeproj
 ```
 
 Pick an iPhone simulator (or **My Mac (Designed for iPhone)** on Apple Silicon)
@@ -97,10 +97,10 @@ entirely on-device and merged into your data.
 ```bash
 cd ios
 # Build for the simulator
-xcodebuild -project BudgetApp.xcodeproj -scheme BudgetApp \
+xcodebuild -project PocketLocket.xcodeproj -scheme PocketLocket \
   -destination 'platform=iOS Simulator,name=iPhone 17' build
 # Run the tests
-xcodebuild -project BudgetApp.xcodeproj -scheme BudgetApp \
+xcodebuild -project PocketLocket.xcodeproj -scheme PocketLocket \
   -destination 'platform=iOS Simulator,name=iPhone 17' test
 ```
 
@@ -109,7 +109,7 @@ xcodebuild -project BudgetApp.xcodeproj -scheme BudgetApp \
 ## Running on your iPhone
 
 Signing is preconfigured (automatic, with the development team set in
-`project.yml`; bundle id `com.vratnakaram.BudgetApp`). Connect your iPhone,
+`project.yml`; bundle id `com.vratnakaram.PocketLocket`). Connect your iPhone,
 select it in Xcode, and Run. With a **free** Apple ID the install is valid for
 **7 days** — re-run from Xcode to renew. On the device, first launch requires
 trusting your developer certificate in **Settings → General → VPN & Device

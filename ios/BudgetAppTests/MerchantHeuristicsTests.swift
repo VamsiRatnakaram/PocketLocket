@@ -1,5 +1,5 @@
 import XCTest
-@testable import BudgetApp
+@testable import PocketLocket
 
 final class MerchantHeuristicsTests: XCTestCase {
     private func category(_ text: String) -> SpendCategory? {

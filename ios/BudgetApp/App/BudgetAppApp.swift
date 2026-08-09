@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct BudgetAppApp: App {
+struct PocketLocketApp: App {
     @State private var gate = BiometricGate()
     @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.system.rawValue
 

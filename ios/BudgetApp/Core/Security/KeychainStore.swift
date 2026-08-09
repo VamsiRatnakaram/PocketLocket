@@ -6,7 +6,7 @@ import LocalAuthentication
 /// access URL). Items are marked `WhenUnlockedThisDeviceOnly` so they never sync
 /// to iCloud and are only readable while the device is unlocked.
 enum KeychainStore {
-    static let service = "com.budgetapp.mobile.tokens"
+    static let service = "com.pocketlocket.mobile.tokens"
 
     enum KeychainError: Error { case unexpectedStatus(OSStatus) }
 

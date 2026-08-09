@@ -285,6 +285,8 @@ enum MerchantHeuristics {
         for scalar in folded.unicodeScalars {
             if CharacterSet.alphanumerics.contains(scalar) || scalar == "&" {
                 tokenized.unicodeScalars.append(scalar)
+            } else if scalar == "'" || scalar == "’" {
+                continue
             } else {
                 tokenized.append(" ")
             }
@@ -296,11 +298,16 @@ enum MerchantHeuristics {
         guard !phrase.isEmpty, phrase.count <= descriptor.count else { return false }
         if descriptor.contains(phrase.joined()) { return true }
         for start in 0...(descriptor.count - phrase.count) {
-            if Array(descriptor[start..<(start + phrase.count)]) == phrase {
+            let candidate = descriptor[start..<(start + phrase.count)]
+            if zip(phrase, candidate).allSatisfy({ tokensMatch($0, $1) }) {
                 return true
             }
         }
         return false
+    }
+
+    private static func tokensMatch(_ phrase: String, _ descriptor: String) -> Bool {
+        phrase == descriptor || phrase + "s" == descriptor || phrase == descriptor + "s"
     }
 
     private static func category(forTokens tokens: [String]) -> SpendCategory? {

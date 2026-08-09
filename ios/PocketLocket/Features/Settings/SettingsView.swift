@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import SwiftData
 
@@ -11,6 +12,8 @@ struct SettingsView: View {
     @State private var simplefinConnected = false
     @State private var showSimpleFIN = false
     @State private var showBackup = false
+    @State private var showDisconnectConfirmation = false
+    @State private var disconnectErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -64,8 +67,7 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     if simplefinConnected {
                         Button(role: .destructive) {
-                            SimpleFINStore.clear()
-                            simplefinConnected = false
+                            showDisconnectConfirmation = true
                         } label: {
                             Text("Disconnect SimpleFIN")
                         }
@@ -80,6 +82,19 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("Categorization")
+                }
+
+                Section("Help & Privacy") {
+                    if let supportURL {
+                        Link(destination: supportURL) {
+                            Label("Contact Support", systemImage: "envelope")
+                        }
+                    }
+                    NavigationLink {
+                        PrivacyPolicyView()
+                    } label: {
+                        Label("Privacy Policy", systemImage: "hand.raised")
+                    }
                 }
 
                 Section {
@@ -106,9 +121,43 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showBackup) { BackupView() }
             .onAppear { simplefinConnected = SimpleFINStore.isConnected }
+            .confirmationDialog(
+                "Disconnect SimpleFIN?",
+                isPresented: $showDisconnectConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Disconnect and Keep Data") { disconnectSimpleFIN(deleteSyncedData: false) }
+                Button("Disconnect and Delete Data", role: .destructive) {
+                    disconnectSimpleFIN(deleteSyncedData: true)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Choose whether transactions and accounts synced from SimpleFIN stay on this device. Imported and manual data will not be deleted.")
+            }
+            .alert(
+                "Couldn’t Delete SimpleFIN Data",
+                isPresented: Binding(
+                    get: { disconnectErrorMessage != nil },
+                    set: { if !$0 { disconnectErrorMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { disconnectErrorMessage = nil }
+            } message: {
+                Text(disconnectErrorMessage ?? "Please try again.")
+            }
         }
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
+    }
+
+    private var supportURL: URL? {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+        return SupportEmail.url(
+            version: version,
+            build: build,
+            operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString
+        )
     }
 
     private func resetLocalData() {
@@ -119,5 +168,18 @@ struct SettingsView: View {
         SimpleFINStore.clear()
         simplefinConnected = false
         dismiss()
+    }
+
+    private func disconnectSimpleFIN(deleteSyncedData: Bool) {
+        if deleteSyncedData {
+            do {
+                try SimpleFINDataStore.deleteSyncedData(in: context)
+            } catch {
+                disconnectErrorMessage = error.localizedDescription
+                return
+            }
+        }
+        SimpleFINStore.clear()
+        simplefinConnected = false
     }
 }
