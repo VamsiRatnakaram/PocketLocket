@@ -25,7 +25,7 @@ struct PrivacyPolicyView: View {
             Section("Privacy protections") {
                 Text("Budget does not include advertising, analytics, or tracking SDKs. It does not sell your information or create an app account for you.")
                 Text("Face ID and Touch ID are handled by Apple. Budget receives only the authentication result, never biometric data.")
-                Text("On supported devices, savings insights use Apple Intelligence on-device. Budget does not send those insights or your spending data to a server operated by the developer.")
+                Text("On supported devices, you can ask Apple Intelligence questions about recent transactions. Questions and transaction context are processed on-device and are not sent to a server operated by the developer.")
             }
 
             Section("Backups and control") {

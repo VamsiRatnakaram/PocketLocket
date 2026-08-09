@@ -130,6 +130,7 @@ struct HomeView: View {
             .padding(.vertical)
         }
         .refreshable { await refresh() }
+        .simultaneousGesture(monthSwipeGesture)
         .navigationDestination(item: $selectedCategory) { category in
             CategoryDetailView(category: category, interval: monthInterval, periodLabel: monthTitle)
         }
@@ -279,9 +280,7 @@ struct HomeView: View {
 
     private var monthSwitcher: some View {
         HStack {
-            Button {
-                withAnimation(reduceMotion ? nil : .snappy) { monthOffset -= 1 }
-            } label: {
+            Button { moveMonth(by: -1) } label: {
                 Image(systemName: "chevron.left")
                     .font(.headline)
                     .frame(width: 44, height: 44)
@@ -293,9 +292,7 @@ struct HomeView: View {
                 .font(.system(.title, design: .rounded).weight(.bold))
                 .contentTransition(.numericText())
             Spacer()
-            Button {
-                withAnimation(reduceMotion ? nil : .snappy) { monthOffset += 1 }
-            } label: {
+            Button { moveMonth(by: 1) } label: {
                 Image(systemName: "chevron.right")
                     .font(.headline)
                     .frame(width: 44, height: 44)
@@ -304,6 +301,22 @@ struct HomeView: View {
             .opacity(monthOffset >= 0 ? 0.25 : 1)
         }
         .padding(.horizontal)
+    }
+
+    private var monthSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let horizontal = value.predictedEndTranslation.width
+                let vertical = value.predictedEndTranslation.height
+                guard abs(horizontal) > 60, abs(horizontal) > abs(vertical) * 1.4 else { return }
+                moveMonth(by: horizontal < 0 ? 1 : -1)
+            }
+    }
+
+    private func moveMonth(by delta: Int) {
+        let target = min(0, max(minMonthOffset, monthOffset + delta))
+        guard target != monthOffset else { return }
+        withAnimation(reduceMotion ? nil : .snappy) { monthOffset = target }
     }
 
     private func showMonth(year: Int, monthIndex: Int) {

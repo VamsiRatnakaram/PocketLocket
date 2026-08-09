@@ -42,6 +42,7 @@ struct TransactionDetailView: View {
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
+        .onDisappear { persistSelection() }
     }
 
     private var header: some View {
@@ -95,12 +96,15 @@ struct TransactionDetailView: View {
     private func choose(_ category: SpendCategory) {
         withAnimation(.snappy) { selected = category }
         feedback += 1
+    }
 
+    private func persistSelection() {
+        guard selected != currentCategory else { return }
         let key = matchKey.lowercased()
         if let existing = rules.first(where: { $0.matchText == key }) {
-            existing.categoryRaw = category.rawValue
+            existing.categoryRaw = selected.rawValue
         } else {
-            context.insert(CategoryRule(matchText: key, category: category))
+            context.insert(CategoryRule(matchText: key, category: selected))
         }
         try? context.save()
     }

@@ -8,6 +8,8 @@ struct SuggestionsView: View {
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
     @State private var ai = AIInsightService()
+    @State private var question = ""
+    @State private var submittedQuestion: String?
 
     private var monthTransactions: [TransactionRecord] {
         let interval = Calendar.current.dateInterval(of: .month, for: Date())
@@ -50,6 +52,14 @@ struct SuggestionsView: View {
         )
     }
 
+    private var questionTransactions: [TransactionRecord] {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date()) ?? .distantPast
+        let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
+        return Array(transactions.lazy.filter {
+            $0.date >= cutoff && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
+        }.prefix(120))
+    }
+
     private var potentialMonthly: Double {
         suggestions.compactMap(\.monthlyImpact).reduce(0, +)
     }
@@ -57,7 +67,7 @@ struct SuggestionsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                if suggestions.isEmpty {
+                if questionTransactions.isEmpty {
                     ContentUnavailableView(
                         "No suggestions yet",
                         systemImage: "sparkles",
@@ -66,12 +76,14 @@ struct SuggestionsView: View {
                     .padding(.top, 60)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        header
+                        if !suggestions.isEmpty { header }
                         aiCard
-                        Text("Ways to save")
-                            .font(.headline)
-                            .padding(.top, 4)
-                        ForEach(suggestions) { SuggestionCard(suggestion: $0) }
+                        if !suggestions.isEmpty {
+                            Text("Ways to save")
+                                .font(.headline)
+                                .padding(.top, 4)
+                            ForEach(suggestions) { SuggestionCard(suggestion: $0) }
+                        }
                     }
                     .padding()
                 }
@@ -86,75 +98,69 @@ struct SuggestionsView: View {
                     }
                 }
             }
-            .task(id: aiSignature) {
-                guard !suggestions.isEmpty else { return }
-                await ai.generateIfNeeded(prompt: aiPrompt, signature: aiSignature)
-            }
         }
     }
 
-    @ViewBuilder private var aiCard: some View {
-        switch ai.state {
-        case .loading:
-            HStack(spacing: 10) {
-                ProgressView()
-                Text("Thinking on-device…").foregroundStyle(.secondary)
+    private var aiCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .symbolRenderingMode(.multicolor)
+                Text("Ask PocketLocket")
+                    .font(.headline)
                 Spacer()
             }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        case let .ready(text):
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .symbolRenderingMode(.multicolor)
-                    Text("Apple Intelligence")
-                        .foregroundStyle(LinearGradient(colors: [.purple, .blue], startPoint: .leading, endPoint: .trailing))
-                    Spacer()
-                    Button {
-                        Task { await ai.regenerate(prompt: aiPrompt, signature: aiSignature) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                }
-                .font(.subheadline.weight(.semibold))
 
+            Text("Ask about your recent transactions. Apple Intelligence processes the question on this device.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Where did I spend the most?", text: $question, axis: .vertical)
+                    .lineLimit(1...3)
+                    .textFieldStyle(.roundedBorder)
+                    .submitLabel(.send)
+                    .onSubmit { submitQuestion() }
+
+                Button { submitQuestion() } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                }
+                .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || ai.state == .loading)
+                .accessibilityLabel("Ask question")
+            }
+
+            if let submittedQuestion {
+                Text(submittedQuestion)
+                    .font(.subheadline.weight(.medium))
+            }
+
+            switch ai.state {
+            case .idle:
+                EmptyView()
+            case .loading:
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Thinking on-device…")
+                        .foregroundStyle(.secondary)
+                }
+            case let .ready(text):
                 Text(markdown(text))
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
+            case .unavailable:
+                Label("Apple Intelligence is not available on this device.", systemImage: "exclamationmark.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            case .failed:
+                Label("The question couldn’t be answered. Please try again.", systemImage: "exclamationmark.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(LinearGradient(
-                        colors: [.purple.opacity(0.14), .blue.opacity(0.10)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    ))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(colors: [.purple.opacity(0.5), .blue.opacity(0.35)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                        lineWidth: 1
-                    )
-            )
-        case .idle, .unavailable:
-            EmptyView()
         }
-    }
-
-    private var aiPrompt: String {
-        let lines = suggestions.map { "- \($0.title): \($0.detail)" }.joined(separator: "\n")
-        return """
-        Monthly budget: \(CurrencyFormatter.string(monthlyBudget)).
-        Observations from this month:
-        \(lines)
-        Give me a couple of specific, encouraging ways to save money.
-        """
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func markdown(_ string: String) -> AttributedString {
@@ -164,9 +170,24 @@ struct SuggestionsView: View {
         )) ?? AttributedString(string)
     }
 
-    private var aiSignature: String {
-        let parts = suggestions.map { "\($0.title)|\(Int(($0.monthlyImpact ?? 0).rounded()))" }
-        return (["budget:\(Int(monthlyBudget))"] + parts).joined(separator: ";")
+    private func submitQuestion() {
+        let submitted = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !submitted.isEmpty, ai.state != .loading else { return }
+        question = ""
+        submittedQuestion = submitted
+        let context = TransactionQuestionContext.make(
+            entries: questionTransactions.map { transaction in
+                TransactionQuestionContext.Entry(
+                    date: transaction.date,
+                    title: transaction.title,
+                    amount: transaction.amount,
+                    currency: transaction.isoCurrencyCode,
+                    category: transaction.resolvedCategory(using: rules).displayName
+                )
+            },
+            monthlyBudget: monthlyBudget
+        )
+        Task { await ai.ask(question: submitted, transactionContext: context) }
     }
 
     private var header: some View {
