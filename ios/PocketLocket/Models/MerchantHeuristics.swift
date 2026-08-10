@@ -279,7 +279,7 @@ enum MerchantHeuristics {
         contains(tokens(in: phrase), in: tokens(in: descriptor))
     }
 
-    private static func tokens(in value: String) -> [String] {
+    static func tokens(in value: String) -> [String] {
         let folded = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         var tokenized = ""
         for scalar in folded.unicodeScalars {
@@ -294,7 +294,7 @@ enum MerchantHeuristics {
         return tokenized.split(whereSeparator: \ .isWhitespace).map(String.init)
     }
 
-    private static func contains(_ phrase: [String], in descriptor: [String]) -> Bool {
+    static func contains(_ phrase: [String], in descriptor: [String]) -> Bool {
         guard !phrase.isEmpty, phrase.count <= descriptor.count else { return false }
         if descriptor.contains(phrase.joined()) { return true }
         for start in 0...(descriptor.count - phrase.count) {

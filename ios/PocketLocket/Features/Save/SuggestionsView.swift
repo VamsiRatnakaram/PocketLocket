@@ -3,13 +3,23 @@ import SwiftData
 
 /// The "Save" tab — data-driven suggestions for where and how to save money.
 struct SuggestionsView: View {
-    @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
+    @Query private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
     @State private var ai = AIInsightService()
     @State private var question = ""
     @State private var submittedQuestion: String?
+    @FocusState private var questionFocused: Bool
+
+    init() {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date()) ?? .distantPast
+        _transactions = Query(
+            filter: #Predicate<TransactionRecord> { $0.date >= cutoff },
+            sort: \TransactionRecord.date,
+            order: .reverse
+        )
+    }
 
     private var monthTransactions: [TransactionRecord] {
         let interval = Calendar.current.dateInterval(of: .month, for: Date())
@@ -88,6 +98,7 @@ struct SuggestionsView: View {
                     .padding()
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Save")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -99,6 +110,19 @@ struct SuggestionsView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if questionFocused {
+                HStack {
+                    Spacer()
+                    Button("Done") { questionFocused = false }
+                        .fontWeight(.semibold)
+                }
+                .frame(height: 44)
+                .padding(.horizontal)
+                .background(.bar)
+                .overlay(alignment: .top) { Divider() }
+            }
+        }
     }
 
     private var aiCard: some View {
@@ -108,10 +132,16 @@ struct SuggestionsView: View {
                     .symbolRenderingMode(.multicolor)
                 Text("Ask PocketLocket")
                     .font(.headline)
+                Text("BETA")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color(.tertiarySystemFill), in: Capsule())
                 Spacer()
             }
 
-            Text("Ask about your recent transactions. Apple Intelligence processes the question on this device.")
+            Text("Ask about your recent transactions. This beta uses Apple Intelligence on-device, so answers may not always be accurate.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -119,6 +149,7 @@ struct SuggestionsView: View {
                 TextField("Where did I spend the most?", text: $question, axis: .vertical)
                     .lineLimit(1...3)
                     .textFieldStyle(.roundedBorder)
+                    .focused($questionFocused)
                     .submitLabel(.send)
                     .onSubmit { submitQuestion() }
 
@@ -174,6 +205,7 @@ struct SuggestionsView: View {
         let submitted = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !submitted.isEmpty, ai.state != .loading else { return }
         question = ""
+        questionFocused = false
         submittedQuestion = submitted
         let context = TransactionQuestionContext.make(
             entries: questionTransactions.map { transaction in

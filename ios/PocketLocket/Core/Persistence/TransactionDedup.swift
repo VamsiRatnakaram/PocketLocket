@@ -23,8 +23,12 @@ enum TransactionDedup {
     /// A map of dedupe-key -> source built from all existing transactions.
     static func index(_ context: ModelContext) -> [String: String] {
         let all = (try? context.fetch(FetchDescriptor<TransactionRecord>())) ?? []
+        return index(all)
+    }
+
+    static func index(_ transactions: [TransactionRecord]) -> [String: String] {
         var map: [String: String] = [:]
-        for txn in all {
+        for txn in transactions {
             map[key(date: txn.date, amount: txn.amount, name: txn.merchantName ?? txn.name)] =
                 source(of: txn.plaidTransactionId)
         }

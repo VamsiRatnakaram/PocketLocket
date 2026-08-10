@@ -16,6 +16,9 @@ struct TransactionsView: View {
     @State private var detail: TransactionRecord?
     @State private var showAdd = false
     @State private var editing: TransactionRecord?
+    @State private var isSelecting = false
+    @State private var selectedTransactionIDs: Set<String> = []
+    @State private var assignmentErrorMessage: String?
 
     enum TxnType: String, CaseIterable, Identifiable {
         case all, expenses, income
@@ -99,19 +102,33 @@ struct TransactionsView: View {
         NavigationStack {
             List {
                 ForEach(sortedFiltered) { txn in
-                    Button { detail = txn } label: {
-                        TransactionRow(txn: txn, category: category(for: txn))
-                    }
-                    .buttonStyle(PressableStyle(scale: 0.98))
-                    .swipeActions(edge: .trailing) {
-                        if txn.plaidTransactionId.hasPrefix("manual-") {
-                            Button(role: .destructive) { delete(txn) } label: {
-                                Label("Delete", systemImage: "trash")
+                    if isSelecting {
+                        Button { toggleSelection(of: txn) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: selectedTransactionIDs.contains(txn.id) ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3)
+                                    .foregroundStyle(selectedTransactionIDs.contains(txn.id) ? Color.accentColor : Color.secondary)
+                                TransactionRow(txn: txn, category: category(for: txn))
                             }
-                            Button { editing = txn } label: {
-                                Label("Edit", systemImage: "pencil")
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(selectedTransactionIDs.contains(txn.id) ? "Deselect" : "Select") \(txn.title)")
+                    } else {
+                        Button { detail = txn } label: {
+                            TransactionRow(txn: txn, category: category(for: txn))
+                        }
+                        .buttonStyle(PressableStyle(scale: 0.98))
+                        .swipeActions(edge: .trailing) {
+                            if txn.plaidTransactionId.hasPrefix("manual-") {
+                                Button(role: .destructive) { delete(txn) } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button { editing = txn } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.blue)
                             }
-                            .tint(.blue)
                         }
                     }
                 }
@@ -119,11 +136,30 @@ struct TransactionsView: View {
             .listStyle(.plain)
             .navigationTitle("Transactions")
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search merchants")
-            .safeAreaInset(edge: .top) { typeBar }
+            .safeAreaInset(edge: .top) {
+                if !isSelecting { typeBar }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if isSelecting { selectionBar }
+            }
             .toolbar {
-                filterMenu
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showAdd = true } label: { Image(systemName: "plus") }
+                if isSelecting {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { endSelection() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(allVisibleSelected ? "Deselect All" : "Select All") { toggleAllVisible() }
+                            .disabled(sortedFiltered.isEmpty)
+                    }
+                } else {
+                    filterMenu
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showAdd = true } label: { Image(systemName: "plus") }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Select") { isSelecting = true }
+                            .disabled(sortedFiltered.isEmpty)
+                    }
                 }
             }
             .sheet(item: $detail) { txn in
@@ -131,6 +167,11 @@ struct TransactionsView: View {
             }
             .sheet(isPresented: $showAdd) { ManualTransactionView() }
             .sheet(item: $editing) { txn in ManualTransactionView(editing: txn) }
+            .alert("Couldn’t Assign Category", isPresented: assignmentErrorBinding) {
+                Button("OK", role: .cancel) { assignmentErrorMessage = nil }
+            } message: {
+                Text(assignmentErrorMessage ?? "Please try again.")
+            }
             .animation(.default, value: filtered.count)
             .overlay {
                 if transactions.isEmpty {
@@ -146,6 +187,33 @@ struct TransactionsView: View {
         }
     }
 
+    private var allVisibleSelected: Bool {
+        !sortedFiltered.isEmpty && sortedFiltered.allSatisfy { selectedTransactionIDs.contains($0.id) }
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: 12) {
+            Text("\(selectedTransactionIDs.count) selected")
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+            Spacer()
+            Menu {
+                ForEach(SpendCategory.allCases) { category in
+                    Button { assignSelected(to: category) } label: {
+                        Label(category.displayName, systemImage: category.symbol)
+                    }
+                }
+            } label: {
+                Label("Assign Category", systemImage: "tag.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(selectedTransactionIDs.isEmpty)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
     private var typeBar: some View {
         Picker("Type", selection: $typeFilter) {
             ForEach(TxnType.allCases) { Text($0.label).tag($0) }
@@ -154,6 +222,46 @@ struct TransactionsView: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+
+    private var assignmentErrorBinding: Binding<Bool> {
+        Binding(
+            get: { assignmentErrorMessage != nil },
+            set: { if !$0 { assignmentErrorMessage = nil } }
+        )
+    }
+
+    private func toggleSelection(of transaction: TransactionRecord) {
+        if selectedTransactionIDs.contains(transaction.id) {
+            selectedTransactionIDs.remove(transaction.id)
+        } else {
+            selectedTransactionIDs.insert(transaction.id)
+        }
+    }
+
+    private func toggleAllVisible() {
+        let visibleIDs = Set(sortedFiltered.map(\.id))
+        if allVisibleSelected {
+            selectedTransactionIDs.subtract(visibleIDs)
+        } else {
+            selectedTransactionIDs.formUnion(visibleIDs)
+        }
+    }
+
+    private func assignSelected(to category: SpendCategory) {
+        let selected = transactions.filter { selectedTransactionIDs.contains($0.id) }
+        guard !selected.isEmpty else { return }
+        do {
+            try CategoryAssignment.assign(category, to: selected, using: rules, in: context)
+            endSelection()
+        } catch {
+            assignmentErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func endSelection() {
+        selectedTransactionIDs.removeAll()
+        isSelecting = false
     }
 
     @ToolbarContentBuilder

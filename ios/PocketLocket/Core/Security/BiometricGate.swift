@@ -7,13 +7,16 @@ import Observation
 @Observable
 @MainActor
 final class BiometricGate {
-    enum State {
+    enum State: Equatable {
         case locked
         case unlocked
         case unavailable // No biometrics/passcode enrolled — don't block the user.
     }
 
     var state: State = .locked
+    private(set) var authenticationContext: LAContext?
+    private(set) var isAuthenticating = false
+    private var authenticationAttemptID: UUID?
 
     init() {
         if Self.isRunningTests {
@@ -21,40 +24,56 @@ final class BiometricGate {
         }
     }
 
-    /// A shared context: a successful unlock can be briefly reused to read the
-    /// Keychain-protected bank token without prompting a second time.
-    let authenticationContext: LAContext = {
+    private static func makeAuthenticationContext() -> LAContext {
         let context = LAContext()
         context.localizedFallbackTitle = "Enter Passcode"
-        context.touchIDAuthenticationAllowableReuseDuration = LATouchIDAuthenticationMaximumAllowableReuseDuration
         return context
-    }()
+    }
 
     var isUnlocked: Bool { state == .unlocked || state == .unavailable }
 
     func authenticate() async {
+        guard !isAuthenticating else { return }
+        let attemptID = UUID()
+        authenticationAttemptID = attemptID
+        isAuthenticating = true
+        defer {
+            if authenticationAttemptID == attemptID {
+                isAuthenticating = false
+            }
+        }
+
+        let context = Self.makeAuthenticationContext()
+        authenticationContext = context
+
         if Self.isRunningTests {
-            state = .unlocked
+            if authenticationAttemptID == attemptID { state = .unlocked }
             return
         }
 
         var error: NSError?
         let policy: LAPolicy = .deviceOwnerAuthentication
-        guard authenticationContext.canEvaluatePolicy(policy, error: &error) else {
-            state = .unavailable
+        guard context.canEvaluatePolicy(policy, error: &error) else {
+            if authenticationAttemptID == attemptID { state = .unavailable }
             return
         }
 
         do {
-            let success = try await authenticationContext.evaluatePolicy(policy, localizedReason: "Unlock Budget")
-            state = success ? .unlocked : .locked
+            let success = try await context.evaluatePolicy(policy, localizedReason: "Unlock PocketLocket")
+            if authenticationAttemptID == attemptID {
+                state = success ? .unlocked : .locked
+            }
         } catch {
-            state = .locked
+            if authenticationAttemptID == attemptID { state = .locked }
         }
     }
 
     func lock() {
-        if state == .unlocked { state = .locked }
+        authenticationAttemptID = nil
+        isAuthenticating = false
+        authenticationContext?.invalidate()
+        authenticationContext = nil
+        state = .locked
     }
 
     private static var isRunningTests: Bool {

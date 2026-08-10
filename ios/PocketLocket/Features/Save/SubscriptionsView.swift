@@ -5,9 +5,18 @@ import SwiftData
 /// estimates their monthly cost. Reached from the Save tab. Respects the account
 /// include/exclude filter.
 struct SubscriptionsView: View {
-    @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
+    @Query private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
+
+    init() {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -13, to: Date()) ?? .distantPast
+        _transactions = Query(
+            filter: #Predicate<TransactionRecord> { $0.date >= cutoff },
+            sort: \TransactionRecord.date,
+            order: .reverse
+        )
+    }
 
     struct Sub: Identifiable {
         let id: String
@@ -23,10 +32,8 @@ struct SubscriptionsView: View {
 
     private var subscriptions: [Sub] {
         let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
-        let cutoff = Calendar.current.date(byAdding: .month, value: -13, to: Date()) ?? .distantPast
         let recurring = transactions.filter { txn in
-            txn.date >= cutoff
-                && txn.amount > 0
+            txn.amount > 0
                 && SpendingAccountFilter.isIncluded(txn.accountId, excluded: excluded)
                 && MerchantHeuristics.isLikelySubscription((txn.merchantName ?? "") + " " + txn.name)
         }

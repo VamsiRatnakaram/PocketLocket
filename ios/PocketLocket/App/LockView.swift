@@ -21,6 +21,5 @@ struct LockView: View {
             .controlSize(.large)
         }
         .padding()
-        .task { await gate.authenticate() }
     }
 }

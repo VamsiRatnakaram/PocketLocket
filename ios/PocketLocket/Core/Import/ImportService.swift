@@ -54,12 +54,15 @@ enum ImportService {
             context: context
         )
 
-        var existing = TransactionDedup.index(context)
+        let localTransactions = (try? context.fetch(FetchDescriptor<TransactionRecord>())) ?? []
+        var existing = TransactionDedup.index(localTransactions)
+        var existingIDs = Set(localTransactions.map(\.id))
         var inserted = 0
         for txn in statement.transactions {
             let id = "ofx-\(txn.fitId)"
             if insert(id: id, name: txn.name, amount: txn.amount, date: txn.date,
-                      accountId: accountId, currency: currency, existing: &existing, context: context) {
+                      accountId: accountId, currency: currency, existing: &existing,
+                      existingIDs: &existingIDs, context: context) {
                 inserted += 1
             }
         }
@@ -75,13 +78,16 @@ enum ImportService {
 
         upsertAccount(id: accountId, name: "Imported (CSV)", balance: nil, currency: "USD", context: context)
 
-        var existing = TransactionDedup.index(context)
+        let localTransactions = (try? context.fetch(FetchDescriptor<TransactionRecord>())) ?? []
+        var existing = TransactionDedup.index(localTransactions)
+        var existingIDs = Set(localTransactions.map(\.id))
         var inserted = 0
         for (offset, row) in rows.enumerated() {
             let stableKey = "\(Int(row.date.timeIntervalSince1970))-\(offset)-\(row.description.hashValue)"
             let id = "csv-\(stableKey)"
             if insert(id: id, name: row.description, amount: row.amount, date: row.date,
-                      accountId: accountId, currency: "USD", existing: &existing, context: context) {
+                      accountId: accountId, currency: "USD", existing: &existing,
+                      existingIDs: &existingIDs, context: context) {
                 inserted += 1
             }
         }
@@ -99,12 +105,10 @@ enum ImportService {
         accountId: String,
         currency: String,
         existing: inout [String: String],
+        existingIDs: inout Set<String>,
         context: ModelContext
     ) -> Bool {
-        let byId = (try? context.fetch(
-            FetchDescriptor<TransactionRecord>(predicate: #Predicate { $0.plaidTransactionId == id })
-        ))?.first
-        guard byId == nil else { return false } // same-source re-import
+        guard !existingIDs.contains(id) else { return false }
         // Skip the same real transaction already synced from SimpleFIN / another import.
         if TransactionDedup.isCrossSourceDuplicate(id: id, date: date, amount: amount, name: name, in: existing) {
             return false
@@ -124,6 +128,7 @@ enum ImportService {
             logoURL: nil,
             accountId: accountId
         ))
+        existingIDs.insert(id)
         existing[TransactionDedup.key(date: date, amount: amount, name: name)] = TransactionDedup.source(of: id)
         return true
     }
@@ -136,7 +141,7 @@ enum ImportService {
         context: ModelContext
     ) {
         let existing = (try? context.fetch(
-            FetchDescriptor<AccountRecord>(predicate: #Predicate { $0.plaidAccountId == id })
+            FetchDescriptor<AccountRecord>(predicate: #Predicate { $0.id == id })
         ))?.first
 
         if let existing {

@@ -23,7 +23,11 @@ final class SyncService {
         let since = Calendar.current.date(byAdding: .month, value: -13, to: Date())
         let set = try await SimpleFINClient().fetchAccounts(accessURL: accessURL, since: since)
 
-        var dedupeIndex = TransactionDedup.index(context)
+        let localTransactions = try context.fetch(FetchDescriptor<TransactionRecord>())
+        var transactionsByID = Dictionary(uniqueKeysWithValues: localTransactions.map { ($0.id, $0) })
+        var dedupeIndex = TransactionDedup.index(localTransactions)
+        let localAccounts = try context.fetch(FetchDescriptor<AccountRecord>())
+        var accountsByID = Dictionary(uniqueKeysWithValues: localAccounts.map { ($0.id, $0) })
         for account in set.accounts {
             let accountId = "sf-" + account.id
             upsertLocalAccount(
@@ -32,6 +36,7 @@ final class SyncService {
                 balance: Double(account.balance ?? "") ?? 0,
                 currency: account.currency ?? "USD",
                 type: SimpleFINMapper.inferType(name: account.name),
+                accountsByID: &accountsByID,
                 context: context
             )
             for txn in account.transactions ?? [] {
@@ -45,6 +50,7 @@ final class SyncService {
                     accountId: accountId,
                     currency: account.currency ?? "USD",
                     categoryPrimary: txn.category,
+                    transactionsByID: &transactionsByID,
                     dedupeIndex: &dedupeIndex,
                     context: context
                 )
@@ -53,28 +59,26 @@ final class SyncService {
         try context.save()
     }
 
-    private func upsertLocalAccount(id: String, name: String, balance: Double, currency: String, type: String, context: ModelContext) {
-        let existing = (try? context.fetch(
-            FetchDescriptor<AccountRecord>(predicate: #Predicate { $0.plaidAccountId == id })
-        ))?.first
+    private func upsertLocalAccount(id: String, name: String, balance: Double, currency: String, type: String, accountsByID: inout [String: AccountRecord], context: ModelContext) {
+        let existing = accountsByID[id]
         if let existing {
             existing.name = name
             existing.currentBalance = balance
             existing.isoCurrencyCode = currency
             existing.type = type
         } else {
-            context.insert(AccountRecord(
+            let account = AccountRecord(
                 id: id, plaidAccountId: id, name: name, officialName: name,
                 mask: nil, type: type, subtype: nil,
                 currentBalance: balance, availableBalance: nil, isoCurrencyCode: currency
-            ))
+            )
+            context.insert(account)
+            accountsByID[id] = account
         }
     }
 
-    private func upsertLocalTxn(id: String, name: String, amount: Double, date: Date, pending: Bool, accountId: String, currency: String, categoryPrimary: String?, dedupeIndex: inout [String: String], context: ModelContext) {
-        let existing = (try? context.fetch(
-            FetchDescriptor<TransactionRecord>(predicate: #Predicate { $0.plaidTransactionId == id })
-        ))?.first
+    private func upsertLocalTxn(id: String, name: String, amount: Double, date: Date, pending: Bool, accountId: String, currency: String, categoryPrimary: String?, transactionsByID: inout [String: TransactionRecord], dedupeIndex: inout [String: String], context: ModelContext) {
+        let existing = transactionsByID[id]
         if let existing {
             existing.name = name
             existing.merchantName = name
@@ -89,11 +93,13 @@ final class SyncService {
             if TransactionDedup.isCrossSourceDuplicate(id: id, date: date, amount: amount, name: name, in: dedupeIndex) {
                 return
             }
-            context.insert(TransactionRecord(
+            let transaction = TransactionRecord(
                 id: id, plaidTransactionId: id, name: name, merchantName: name,
                 amount: amount, isoCurrencyCode: currency, date: date, pending: pending,
                 categoryPrimary: categoryPrimary, categoryDetailed: nil, logoURL: nil, accountId: accountId
-            ))
+            )
+            context.insert(transaction)
+            transactionsByID[id] = transaction
             dedupeIndex[TransactionDedup.key(date: date, amount: amount, name: name)] = TransactionDedup.source(of: id)
         }
     }

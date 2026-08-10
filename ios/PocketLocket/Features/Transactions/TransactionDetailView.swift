@@ -13,7 +13,6 @@ struct TransactionDetailView: View {
 
     @State private var selected: SpendCategory
     @State private var feedback = 0
-    @State private var detent: PresentationDetent = .large
 
     init(txn: TransactionRecord, currentCategory: SpendCategory) {
         self.txn = txn
@@ -39,7 +38,7 @@ struct TransactionDetailView: View {
             }
             .sensoryFeedback(.selection, trigger: feedback)
         }
-        .presentationDetents([.medium, .large], selection: $detent)
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
         .onDisappear { persistSelection() }
@@ -83,9 +82,7 @@ struct TransactionDetailView: View {
     }
 
     private var matchKey: String {
-        let descriptor = txn.merchantName ?? txn.name
-        let cleaned = MerchantHeuristics.ruleMatchText(for: descriptor)
-        return cleaned.isEmpty ? descriptor : cleaned
+        CategoryAssignment.matchKey(for: txn)
     }
 
     private var amountText: String {
@@ -100,12 +97,6 @@ struct TransactionDetailView: View {
 
     private func persistSelection() {
         guard selected != currentCategory else { return }
-        let key = matchKey.lowercased()
-        if let existing = rules.first(where: { $0.matchText == key }) {
-            existing.categoryRaw = selected.rawValue
-        } else {
-            context.insert(CategoryRule(matchText: key, category: selected))
-        }
-        try? context.save()
+        try? CategoryAssignment.assign(selected, to: [txn], using: rules, in: context)
     }
 }
