@@ -67,14 +67,19 @@ enum MerchantHeuristics {
         ("audible", .entertainment),
 
         // 5) Transport / fuel / auto.
-        ("uber", .transport), ("lyft", .transport), ("waymo", .transport), ("shell", .transport),
+        ("uber", .transport), ("lyft", .transport), ("waymo", .transport), ("lime", .transport), ("shell", .transport),
         ("chevron", .transport), ("exxon", .transport), ("arco", .transport), ("valero", .transport),
         ("sunoco", .transport), ("speedway", .transport), ("circle k", .transport),
         ("quiktrip", .transport), ("gas station", .transport), ("parking", .transport),
         ("garage", .transport), ("toll", .transport), ("fastrak", .transport), ("e-zpass", .transport),
         ("ezpass", .transport), ("mta", .transport), ("bart", .transport), ("caltrain", .transport),
         ("transit", .transport), ("autozone", .transport), ("o'reilly", .transport),
-        ("jiffy lube", .transport), ("car wash", .transport),
+        ("wsferries", .transport), ("wa state ferries", .transport), ("washington state ferries", .transport),
+        ("ferry", .transport),
+        ("jiffy lube", .transport), ("car wash", .transport), ("aaa", .transport),
+        ("citgo", .transport), ("phillips 66", .transport), ("76 gas", .transport),
+        ("conoco", .transport), ("qt gas", .transport), ("costco gas", .transport),
+        ("roadside assistance", .transport), ("towing", .transport),
 
         // 6) Travel.
         ("delta", .travel), ("united air", .travel), ("american air", .travel),
@@ -101,11 +106,19 @@ enum MerchantHeuristics {
         ("market basket", .groceries), ("shoprite", .groceries), ("hannaford", .groceries),
         ("piggly wiggly", .groceries), ("stater bros", .groceries), ("smart final", .groceries),
         ("win dixie", .groceries), ("grocery", .groceries),
-        ("restaurant", .food), ("grill", .food), ("bistro", .food), ("bar", .food),
+        ("restaurant", .food), ("grill", .food), ("grille", .food), ("bistro", .food), ("bar", .food),
         ("pub", .food), ("tavern", .food), ("eatery", .food), ("kitchen", .food),
         ("cantina", .food), ("diner", .food), ("steakhouse", .food), ("bbq", .food),
         ("brewery", .food), ("coffee", .food), ("cafe", .food), ("pizzeria", .food),
-        ("sushi", .food), ("taqueria", .food), ("bakery", .food),
+        ("sushi", .food), ("taqueria", .food), ("bakery", .food), ("pizza", .food),
+        ("deli", .food), ("burrito", .food), ("taco", .food), ("poke", .food),
+        ("boba", .food), ("bubble tea", .food), ("teahouse", .food), ("tea house", .food),
+        ("chophouse", .food), ("seafood", .food), ("buffet", .food), ("smokehouse", .food),
+        ("creamery", .food), ("donut", .food), ("doughnut", .food), ("bagel", .food),
+        ("sandwich", .food), ("hibachi", .food), ("teriyaki", .food), ("curry", .food),
+        ("thai kitchen", .food), ("izakaya", .food), ("gastropub", .food), ("brasserie", .food),
+        ("trattoria", .food), ("espresso", .food), ("noodle", .food), ("dumpling", .food),
+        ("burger", .food), ("chicken shack", .food),
 
         // 8) Shopping / retail.
         ("amazon", .shopping), ("target", .shopping), ("walmart", .shopping), ("costco", .shopping),
@@ -121,6 +134,7 @@ enum MerchantHeuristics {
         ("cvs", .health), ("walgreens", .health), ("pharmacy", .health), ("clinic", .health),
         ("dental", .health), ("dentist", .health), ("kaiser", .health), ("labcorp", .health),
         ("hospital", .health), ("optometry", .health), ("lenscrafters", .health), ("gnc", .health),
+        ("surgeon", .health), ("surgeons", .health), ("surgery", .health), ("surgical", .health),
 
         // 10) Services / subscriptions.
         ("equinox", .services), ("gym", .services), ("adobe", .services), ("dropbox", .services),
@@ -132,16 +146,29 @@ enum MerchantHeuristics {
         ("geico", .services), ("state farm", .services), ("progressive", .services),
         ("allstate", .services), ("insurance", .services), ("storage", .services),
 
-        // 11) Housing / utilities.
-        ("comcast", .housing), ("xfinity", .housing), ("verizon", .housing), ("t-mobile", .housing),
-        ("at&t", .housing), ("spectrum", .housing), ("centurylink", .housing), ("dish network", .housing),
-        ("directv", .housing), ("pg&e", .housing), ("coned", .housing), ("electric", .housing),
-        ("utility", .housing), ("water bill", .housing), ("sewer", .housing), ("internet", .housing),
+        // 11) Housing / rent.
         ("rent", .housing), ("mortgage", .housing), ("apartment", .housing),
+        ("bilt rent", .housing), ("biltrent", .housing), ("bilt mastercard rent", .housing),
+        ("bilt rewards rent", .housing),
+
+        // 11b) Utilities (electric/gas/water/internet/wifi) — folded into
+        // Housing & Bills alongside rent/mortgage.
+        ("comcast", .housing), ("xfinity", .housing), ("verizon", .housing),
+        ("t-mobile", .housing), ("at&t", .housing), ("spectrum", .housing),
+        ("centurylink", .housing), ("dish network", .housing), ("directv", .housing),
+        ("pg&e", .housing), ("coned", .housing), ("electric", .housing),
+        ("utility", .housing), ("utilities", .housing), ("water bill", .housing),
+        ("sewer", .housing), ("internet", .housing), ("wifi", .housing),
+        ("astound", .housing), ("webpass", .housing), ("google webpass", .housing),
+        ("google fiber", .housing), ("seattleutilities", .housing), ("seattle utilities", .housing),
+        ("seattle city light", .housing), ("puget sound energy", .housing),
 
         // 12) Fees & loans.
         ("sofi", .fees), ("navient", .fees), ("nelnet", .fees), ("affirm", .fees),
         ("klarna", .fees), ("afterpay", .fees), ("auto loan", .fees), ("bank fee", .fees),
+
+        // 13) Chase-branded travel portal / points redemptions.
+        ("chase travel", .travel),
     ]
 
     // High-confidence terms that are intentionally considered after the legacy

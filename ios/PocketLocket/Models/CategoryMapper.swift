@@ -33,9 +33,11 @@ enum CategoryMapper {
             return .groceries
         case "SHOPPING", "RETAIL", "CLOTHING_AND_ACCESSORIES", "ELECTRONICS", "HOME_GOODS":
             return .shopping
-        case "HOUSING", "RENT", "UTILITIES", "UTILITY", "HOME_IMPROVEMENT", "TELECOMMUNICATIONS":
+        case "UTILITIES", "UTILITY", "INTERNET", "WIFI", "CABLE", "TELECOMMUNICATIONS", "WATER_UTILITY", "ELECTRIC_UTILITY", "GAS_UTILITY":
             return .housing
-        case "TRANSPORT", "GAS", "GAS_STATIONS", "FUEL", "PARKING", "PUBLIC_TRANSIT", "RIDESHARE":
+        case "HOUSING", "RENT", "HOME_IMPROVEMENT":
+            return .housing
+        case "TRANSPORT", "GAS", "GAS_STATIONS", "FUEL", "PARKING", "PUBLIC_TRANSIT", "RIDESHARE", "AUTOMOTIVE", "TOLLS", "ROADSIDE_ASSISTANCE":
             return .transport
         case "AIRLINES", "LODGING", "HOTELS", "CAR_RENTAL":
             return .travel
