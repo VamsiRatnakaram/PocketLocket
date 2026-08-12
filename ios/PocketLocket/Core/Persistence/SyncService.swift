@@ -19,8 +19,12 @@ final class SyncService {
 
     private func refreshSimpleFIN(context: ModelContext) async throws {
         guard let accessURL = SimpleFINStore.accessURL(context: authContext) else { return }
-        // Pull ~13 months so the Home screen can show real monthly history.
-        let since = Calendar.current.date(byAdding: .month, value: -13, to: Date())
+        // Request as far back as SimpleFIN/most banks will actually return
+        // (omitting start-date defaults to only the last 30 days, which is
+        // why history was capped short). Most bridges cap real history at
+        // 12-24mo regardless, so ask generously; SimpleFIN just returns
+        // whatever the underlying bank actually has.
+        let since = Calendar.current.date(byAdding: .month, value: -24, to: Date())
         let set = try await SimpleFINClient().fetchAccounts(accessURL: accessURL, since: since)
 
         let localTransactions = try context.fetch(FetchDescriptor<TransactionRecord>())
