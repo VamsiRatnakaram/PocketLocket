@@ -37,10 +37,13 @@ struct RootView: View {
         }
         .overlay {
             // Only cover the *unlocked* main app content when backgrounding —
-            // LockView is already privacy-safe, and covering it too caused a
-            // visible flicker because scenePhase toggles active/inactive
-            // rapidly while the system Face ID sheet is presented/dismissed.
-            if scenePhase != .active && gate.isUnlocked {
+            // LockView is already privacy-safe. Skip the cover during Face ID
+            // authentication (gate.isAuthenticating) too, since scenePhase
+            // toggles active/inactive rapidly while the system Face ID sheet
+            // is presented/dismissed — both while still locked and in the
+            // instant right after unlock completes but before scenePhase
+            // catches up — and that overlay churn caused a visible flicker.
+            if scenePhase != .active && gate.isUnlocked && !gate.isAuthenticating {
                 PrivacyCover().transition(.opacity)
             }
         }
