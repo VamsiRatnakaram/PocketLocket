@@ -13,7 +13,7 @@ enum MerchantHeuristics {
         ("payment thank you", .transfer), ("autopay", .transfer), ("auto pay", .transfer),
         ("online payment", .transfer), ("mobile payment", .transfer), ("bill pay", .transfer),
         ("credit card payment", .transfer), ("card payment", .transfer), ("e-payment", .transfer),
-        ("epayment", .transfer), ("epay", .transfer), ("pymt", .transfer), ("des payment", .transfer),
+        ("epayment", .transfer),
         ("ach payment", .transfer), ("ach pmt", .transfer),
         ("ach debit", .transfer), ("ach credit", .transfer), ("web pmt", .transfer),
         ("online transfer", .transfer), ("internal transfer", .transfer), ("funds transfer", .transfer),
