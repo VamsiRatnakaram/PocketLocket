@@ -14,7 +14,9 @@ struct MerchantDetailView: View {
     private var items: [TransactionRecord] {
         transactions
             .filter {
-                $0.amount > 0 && MerchantNormalizer.normalize($0.title) == stats.name
+                $0.amount > 0
+                    && $0.resolvedCategory(using: rules).isSpending
+                    && MerchantNormalizer.normalize($0.title) == stats.name
             }
             .sorted { $0.date > $1.date }
     }
@@ -48,7 +50,7 @@ struct MerchantDetailView: View {
             Section {
                 ForEach(items) { txn in
                     Button { detail = txn } label: {
-                        TransactionRow(txn: txn, category: stats.category)
+                        TransactionRow(txn: txn, category: txn.resolvedCategory(using: rules))
                     }
                     .buttonStyle(PressableStyle(scale: 0.98))
                 }
@@ -60,7 +62,7 @@ struct MerchantDetailView: View {
         .navigationTitle(stats.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $detail) { txn in
-            TransactionDetailView(txn: txn, currentCategory: stats.category)
+            TransactionDetailView(txn: txn, currentCategory: txn.resolvedCategory(using: rules))
         }
     }
 

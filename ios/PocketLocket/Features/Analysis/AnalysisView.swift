@@ -96,11 +96,11 @@ struct AnalysisView: View {
     }
 
     private var categoryAverages: [MerchantAnalytics.CategoryAverage] {
-        MerchantAnalytics.categoryAverages(inputs)
+        MerchantAnalytics.categoryAverages(filteredInputs)
     }
 
     private var categoryMonthly: [MerchantAnalytics.CategoryMonth] {
-        MerchantAnalytics.categoryMonthlyTotals(inputs)
+        MerchantAnalytics.categoryMonthlyTotals(filteredInputs)
     }
 
     var body: some View {
@@ -420,6 +420,10 @@ struct TrendBadge: View {
                 .foregroundStyle(.green)
         case .flat:
             Label("Flat", systemImage: "arrow.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+        case .new:
+            Label("New", systemImage: "sparkle")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
         }

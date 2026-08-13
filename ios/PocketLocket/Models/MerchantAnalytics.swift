@@ -8,6 +8,19 @@ enum MerchantNormalizer {
     /// repeat visits to the same chain are recognized as one merchant.
     private static let posPrefixes = ["sq *", "sq*", "tst*", "tst *", "pp*", "pp *"]
 
+    /// Real USPS state/territory codes only — deliberately not "any 2-letter
+    /// token" so short legitimate merchant-name words aren't mistaken for a
+    /// state suffix and stripped (which would otherwise merge distinct
+    /// merchants under one normalized key).
+    private static let usStateAbbreviations = [
+        "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga",
+        "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", "md",
+        "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj",
+        "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc",
+        "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy",
+        "dc", "pr"
+    ].joined(separator: "|")
+
     static func normalize(_ raw: String) -> String {
         var value = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return raw }
@@ -24,10 +37,15 @@ enum MerchantNormalizer {
             of: #"\s+\d{3,6}\s*$"#, with: "", options: .regularExpression
         )
 
-        // Drop trailing "city, ST" / "city ST" location suffixes (two-letter state).
-        value = value.replacingOccurrences(
-            of: #"\s+[a-z]{2}\s*$"#, with: "", options: .regularExpression
-        )
+        // Drop trailing "city, ST" / "city ST" location suffixes — restricted
+        // to real US state/territory codes (rather than any 2-letter word) so
+        // legitimate short merchant names/tokens aren't mistaken for a state
+        // and stripped, which would otherwise merge distinct merchants.
+        if value.split(separator: " ").count > 1 {
+            value = value.replacingOccurrences(
+                of: #"\s+(\#(Self.usStateAbbreviations))\s*$"#, with: "", options: [.regularExpression, .caseInsensitive]
+            )
+        }
 
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return raw.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -54,6 +72,10 @@ enum MerchantAnalytics {
         case up(percent: Double)
         case down(percent: Double)
         case flat
+        /// No prior-period spend to compare against (e.g. a merchant's first
+        /// visit falls in the recent half of the window) — distinct from
+        /// `.up`/`.down` since there's no real percentage change to report.
+        case new
     }
 
     struct MerchantStats: Identifiable, Hashable {
@@ -196,7 +218,7 @@ enum MerchantAnalytics {
     }
 
     private static func trend(current: Double, previous: Double) -> Trend {
-        guard previous > 0.01 else { return current > 0.01 ? .up(percent: 100) : .flat }
+        guard previous > 0.01 else { return current > 0.01 ? .new : .flat }
         let change = (current - previous) / previous
         if abs(change) < 0.05 { return .flat }
         return change > 0 ? .up(percent: change * 100) : .down(percent: -change * 100)
