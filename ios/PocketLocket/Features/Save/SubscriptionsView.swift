@@ -25,9 +25,20 @@ struct SubscriptionsView: View {
         let lastDate: Date
         let category: SpendCategory
         let count: Int
-        /// Roughly monthly (≥6 hits/yr) counts fully; rarer ones look annual.
-        var monthlyEquivalent: Double { count >= 6 ? amount : amount / 12 }
-        var cadence: String { count >= 6 ? "monthly" : "yearly" }
+        /// Median days between consecutive charges of this merchant, or `nil`
+        /// if there's only one observed charge (not enough data to tell).
+        let averageIntervalDays: Double?
+
+        /// Classifies cadence from the observed spacing between charges
+        /// rather than a raw occurrence count — a count-based threshold
+        /// (e.g. "6+ hits in 13mo = monthly") falsely calls genuinely-monthly
+        /// charges "yearly" when the user only has a few months of history.
+        var isYearly: Bool {
+            guard let interval = averageIntervalDays else { return false }
+            return interval > 180
+        }
+        var monthlyEquivalent: Double { isYearly ? amount / 12 : amount }
+        var cadence: String { isYearly ? "yearly" : "monthly" }
     }
 
     private var subscriptions: [Sub] {
@@ -41,9 +52,18 @@ struct SubscriptionsView: View {
         for txn in recurring { byMerchant[txn.title, default: []].append(txn) }
         return byMerchant.compactMap { merchant, txns -> Sub? in
             guard let latest = txns.max(by: { $0.date < $1.date }) else { return nil }
+            let sorted = txns.sorted { $0.date < $1.date }
+            let averageIntervalDays: Double?
+            if sorted.count >= 2 {
+                let totalSpan = sorted.last!.date.timeIntervalSince(sorted.first!.date)
+                averageIntervalDays = (totalSpan / Double(sorted.count - 1)) / 86_400
+            } else {
+                averageIntervalDays = nil
+            }
             return Sub(
                 id: merchant, merchant: merchant, amount: latest.amount, lastDate: latest.date,
-                category: latest.resolvedCategory(using: rules), count: txns.count
+                category: latest.resolvedCategory(using: rules), count: txns.count,
+                averageIntervalDays: averageIntervalDays
             )
         }
         .sorted { $0.monthlyEquivalent > $1.monthlyEquivalent }
