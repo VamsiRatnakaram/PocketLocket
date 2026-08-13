@@ -25,7 +25,7 @@ struct MainTabView: View {
                 .tag(Tab.save)
                 .tabItem { Label("Save", systemImage: "sparkles") }
 
-            AnalysisRootView()
+            AnalysisView()
                 .tag(Tab.analysis)
                 .tabItem { Label("Analysis", systemImage: "chart.line.uptrend.xyaxis") }
         }
