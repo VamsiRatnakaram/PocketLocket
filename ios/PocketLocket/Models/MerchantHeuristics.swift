@@ -67,7 +67,8 @@ enum MerchantHeuristics {
         ("audible", .entertainment),
 
         // 5) Transport / fuel / auto.
-        ("uber", .transport), ("lyft", .transport), ("waymo", .transport), ("lime", .transport), ("shell", .transport),
+        ("uber", .transport), ("lyft", .transport), ("waymo", .transport), ("lime ride", .transport),
+        ("lime scooter", .transport), ("lime bike", .transport), ("shell", .transport),
         ("chevron", .transport), ("exxon", .transport), ("arco", .transport), ("valero", .transport),
         ("sunoco", .transport), ("speedway", .transport), ("circle k", .transport),
         ("quiktrip", .transport), ("gas station", .transport), ("parking", .transport),
@@ -75,8 +76,8 @@ enum MerchantHeuristics {
         ("ezpass", .transport), ("mta", .transport), ("bart", .transport), ("caltrain", .transport),
         ("transit", .transport), ("autozone", .transport), ("o'reilly", .transport),
         ("wsferries", .transport), ("wa state ferries", .transport), ("washington state ferries", .transport),
-        ("ferry", .transport),
-        ("jiffy lube", .transport), ("car wash", .transport), ("aaa", .transport),
+        ("jiffy lube", .transport), ("car wash", .transport),
+        ("aaa roadside", .transport), ("aaa auto club", .transport), ("aaa towing", .transport),
         ("citgo", .transport), ("phillips 66", .transport), ("76 gas", .transport),
         ("conoco", .transport), ("qt gas", .transport), ("costco gas", .transport),
         ("roadside assistance", .transport), ("towing", .transport),
@@ -147,9 +148,10 @@ enum MerchantHeuristics {
         ("allstate", .services), ("insurance", .services), ("storage", .services),
 
         // 11) Housing / rent.
-        ("rent", .housing), ("mortgage", .housing), ("apartment", .housing),
+        ("budget rent", .travel), ("dollar rent", .travel), ("alamo rent", .travel),
         ("bilt rent", .housing), ("biltrent", .housing), ("bilt mastercard rent", .housing),
         ("bilt rewards rent", .housing),
+        ("rent", .housing), ("mortgage", .housing), ("apartment", .housing),
 
         // 11b) Utilities (electric/gas/water/internet/wifi) — folded into
         // Housing & Bills alongside rent/mortgage.
@@ -223,8 +225,7 @@ enum MerchantHeuristics {
         ("ritz carlton", .travel), ("westin", .travel), ("courtyard", .travel),
         ("hampton inn", .travel), ("residence inn", .travel), ("motel 6", .travel),
         ("la quinta", .travel), ("wyndham", .travel), ("carnival cruise", .travel),
-        ("norwegian cruise", .travel), ("budget rent", .travel), ("dollar rent", .travel),
-        ("thrifty car", .travel), ("alamo rent", .travel), ("sixt", .travel),
+        ("norwegian cruise", .travel), ("thrifty car", .travel), ("sixt", .travel),
         ("lodging", .travel), ("vacation rental", .travel), ("rental car", .travel),
 
         // Entertainment and health.
