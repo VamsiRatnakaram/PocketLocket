@@ -12,6 +12,7 @@ struct AnalysisView: View {
 
     @State private var range: AnalysisTimeRange = .twelveMonths
     @State private var selectedMerchant: MerchantAnalytics.MerchantStats?
+    @State private var selectedCategory: SpendCategory?
     @State private var categoryFilter: SpendCategory?
 
     /// The earliest transaction date across the *unfiltered* account/rule
@@ -133,6 +134,9 @@ struct AnalysisView: View {
             .navigationDestination(item: $selectedMerchant) { stats in
                 MerchantDetailView(stats: stats, transactions: scoped, rules: rules)
             }
+            .navigationDestination(item: $selectedCategory) { category in
+                AnalysisCategoryDetailView(category: category, transactions: scoped, rules: rules)
+            }
         }
     }
 
@@ -242,7 +246,10 @@ struct AnalysisView: View {
                 Text("Monthly category averages")
                     .font(.headline)
                 ForEach(categoryAverages.prefix(6)) { average in
-                    CategoryAverageRow(average: average)
+                    Button { selectedCategory = average.category } label: {
+                        CategoryAverageRow(average: average)
+                    }
+                    .buttonStyle(PressableStyle(scale: 0.98))
                     if average.id != categoryAverages.prefix(6).last?.id {
                         Divider()
                     }
@@ -390,7 +397,11 @@ private struct CategoryAverageRow: View {
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
             TrendBadge(trend: average.trend)
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
+        .contentShape(Rectangle())
     }
 }
 
