@@ -19,6 +19,7 @@ struct TransactionsView: View {
     @State private var isSelecting = false
     @State private var selectedTransactionIDs: Set<String> = []
     @State private var assignmentErrorMessage: String?
+    @State private var syncErrorMessage: String?
 
     enum TxnType: String, CaseIterable, Identifiable {
         case all, expenses, income
@@ -65,6 +66,21 @@ struct TransactionsView: View {
     private func delete(_ txn: TransactionRecord) {
         context.delete(txn)
         try? context.save()
+    }
+
+    /// Pull-to-refresh, matching Home and Accounts. Skipped while multi-select
+    /// is active so a sync can't shift rows under an in-progress selection.
+    private func refresh() async {
+        guard !isSelecting else { return }
+        do {
+            try await SyncService.shared.refresh(context: context)
+        } catch is CancellationError {
+            // A superseded/cancelled refresh (e.g. the pull gesture resetting) is benign.
+        } catch let error as URLError where error.code == .cancelled {
+            // Benign cancellation — the next pull will refresh.
+        } catch {
+            syncErrorMessage = error.localizedDescription
+        }
     }
 
     private var hasActiveFilters: Bool {
@@ -134,6 +150,7 @@ struct TransactionsView: View {
                 }
             }
             .listStyle(.plain)
+            .refreshable { await refresh() }
             .navigationTitle("Transactions")
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search merchants")
             .safeAreaInset(edge: .top) {
@@ -171,6 +188,11 @@ struct TransactionsView: View {
                 Button("OK", role: .cancel) { assignmentErrorMessage = nil }
             } message: {
                 Text(assignmentErrorMessage ?? "Please try again.")
+            }
+            .alert("Couldn’t Refresh", isPresented: syncErrorBinding) {
+                Button("OK", role: .cancel) { syncErrorMessage = nil }
+            } message: {
+                Text(syncErrorMessage ?? "Please try again.")
             }
             .animation(.default, value: filtered.count)
             .overlay {
@@ -228,6 +250,13 @@ struct TransactionsView: View {
         Binding(
             get: { assignmentErrorMessage != nil },
             set: { if !$0 { assignmentErrorMessage = nil } }
+        )
+    }
+
+    private var syncErrorBinding: Binding<Bool> {
+        Binding(
+            get: { syncErrorMessage != nil },
+            set: { if !$0 { syncErrorMessage = nil } }
         )
     }
 
