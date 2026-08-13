@@ -13,7 +13,8 @@ enum MerchantHeuristics {
         ("payment thank you", .transfer), ("autopay", .transfer), ("auto pay", .transfer),
         ("online payment", .transfer), ("mobile payment", .transfer), ("bill pay", .transfer),
         ("credit card payment", .transfer), ("card payment", .transfer), ("e-payment", .transfer),
-        ("epayment", .transfer), ("ach payment", .transfer), ("ach pmt", .transfer),
+        ("epayment", .transfer), ("epay", .transfer), ("pymt", .transfer), ("des payment", .transfer),
+        ("ach payment", .transfer), ("ach pmt", .transfer),
         ("ach debit", .transfer), ("ach credit", .transfer), ("web pmt", .transfer),
         ("online transfer", .transfer), ("internal transfer", .transfer), ("funds transfer", .transfer),
         ("wire transfer", .transfer), ("bank transfer", .transfer), ("transfer to", .transfer),
@@ -24,6 +25,25 @@ enum MerchantHeuristics {
         ("vanguard", .transfer), ("charles schwab", .transfer), ("wealthfront", .transfer),
         ("betterment", .transfer), ("acorns", .transfer), ("brokerage", .transfer),
         ("401k", .transfer), ("roth ira", .transfer),
+
+        // 1b) Credit card issuers paying off a card from a linked bank account
+        //     use their own short-form descriptors (e.g. "CAPITAL ONE MOBILE
+        //     PYMT", "CHASE CREDIT CRD AUTOPAY", "DISCOVER E-PAYMENT"). These
+        //     move money between two of the user's own accounts and would
+        //     otherwise double-count as spend on top of the card's own
+        //     transactions for the same purchases.
+        ("capital one mobile pymt", .transfer), ("capital one online pymt", .transfer),
+        ("capital one payment", .transfer), ("chase credit crd", .transfer),
+        ("chase card payment", .transfer), ("discover e-payment", .transfer),
+        ("discover payment", .transfer), ("amex epayment", .transfer), ("amex online payment", .transfer),
+        ("amex payment", .transfer), ("american express payment", .transfer),
+        ("citi card payment", .transfer), ("citi autopay", .transfer),
+        ("barclaycard payment", .transfer), ("synchrony payment", .transfer),
+        ("us bank cc payment", .transfer), ("wells fargo cc payment", .transfer),
+        ("wf card payment", .transfer), ("cc payment", .transfer), ("cc pymt", .transfer),
+        ("card autopay", .transfer), ("creditcard payment", .transfer),
+        ("mobile banking payment", .transfer), ("banking payment to crd", .transfer),
+        ("payment to crd", .transfer), ("payment to card", .transfer),
 
         // 2) Income (inflows).
         ("payroll", .income), ("paycheck", .income), ("direct deposit", .income),
