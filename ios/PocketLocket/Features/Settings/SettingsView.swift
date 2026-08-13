@@ -162,10 +162,15 @@ struct SettingsView: View {
     /// visible — the app always requests 24 months, but each bank's own
     /// feed decides how far back it actually returns.
     private var earliestDataText: String? {
-        guard let earliest = allTransactions.first?.date else { return nil }
+        // Only consider SimpleFIN-synced transactions (accountId prefixed "sf-"),
+        // not manually-entered or CSV-imported records, so this reflects what the
+        // bank's own feed actually returned rather than any back-dated manual entry.
+        guard let earliest = allTransactions
+            .first(where: { $0.accountId?.hasPrefix("sf-") == true })?.date
+        else { return nil }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
-        let months = Calendar.current.dateComponents([.month], from: earliest, to: Date()).month ?? 0
+        let months = max(0, Calendar.current.dateComponents([.month], from: earliest, to: Date()).month ?? 0)
         return "Oldest synced transaction: \(formatter.string(from: earliest)) (~\(months) month\(months == 1 ? "" : "s") of history). PocketLocket requests up to 24 months, but each bank's SimpleFIN feed decides how far back it actually shares."
     }
 
