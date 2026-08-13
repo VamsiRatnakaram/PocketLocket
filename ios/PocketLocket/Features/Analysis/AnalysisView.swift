@@ -56,61 +56,36 @@ struct AnalysisView: View {
         }
     }
 
-    private var inputs: [MerchantAnalytics.Input] {
-        scoped.map {
-            MerchantAnalytics.Input(
-                title: $0.title,
-                amount: $0.amount,
-                category: $0.resolvedCategory(using: rules),
-                date: $0.date
-            )
+    /// Memoization store for the analysis pipeline. Held in `@State` so it
+    /// survives the many `body` re-evaluations SwiftUI performs per tab load,
+    /// and keyed by a content hash of the transactions/rules so any data change
+    /// (sync, edit, recategorization) recomputes immediately.
+    @State private var cache = AnalysisSnapshotCache()
+
+    private var snapshot: AnalysisSnapshot {
+        let key = AnalysisSnapshotCache.InputsKey(
+            dataHash: AnalysisSnapshotCache.dataHash(transactions),
+            rulesHash: AnalysisSnapshotCache.rulesHash(rules),
+            excludedAccountsRaw: excludedAccountsRaw,
+            range: range
+        )
+        return cache.snapshot(key: key, categoryFilter: categoryFilter) {
+            scoped.map {
+                MerchantAnalytics.Input(
+                    title: $0.title,
+                    amount: $0.amount,
+                    category: $0.resolvedCategory(using: rules),
+                    date: $0.date
+                )
+            }
         }
-    }
-
-    /// Categories present in the un-filtered window, used to build the filter
-    /// chip row (only shows categories that actually have data).
-    private var availableCategories: [SpendCategory] {
-        let present = Set(inputs.filter { $0.category.isSpending }.map(\.category))
-        return SpendCategory.allCases.filter { present.contains($0) }
-    }
-
-    private var filteredInputs: [MerchantAnalytics.Input] {
-        guard let categoryFilter else { return inputs }
-        return inputs.filter { $0.category == categoryFilter }
-    }
-
-    private var merchantStats: [MerchantAnalytics.MerchantStats] {
-        MerchantAnalytics.merchantStats(inputs)
-    }
-
-    private var filteredMerchantStats: [MerchantAnalytics.MerchantStats] {
-        MerchantAnalytics.merchantStats(filteredInputs)
-    }
-
-    private var topByFrequency: [MerchantAnalytics.MerchantStats] {
-        MerchantAnalytics.topByFrequency(filteredMerchantStats, limit: 8)
-    }
-
-    private var topBySpend: [MerchantAnalytics.MerchantStats] {
-        MerchantAnalytics.topBySpend(filteredMerchantStats, limit: 8)
-    }
-
-    private var recurring: [MerchantAnalytics.MerchantStats] {
-        MerchantAnalytics.recurringMerchants(filteredInputs, minMonths: 3)
-    }
-
-    private var categoryAverages: [MerchantAnalytics.CategoryAverage] {
-        MerchantAnalytics.categoryAverages(filteredInputs)
-    }
-
-    private var categoryMonthly: [MerchantAnalytics.CategoryMonth] {
-        MerchantAnalytics.categoryMonthlyTotals(filteredInputs)
     }
 
     var body: some View {
         NavigationStack {
+            let snapshot = self.snapshot
             Group {
-                if merchantStats.isEmpty {
+                if snapshot.isEmpty {
                     ContentUnavailableView {
                         Label("No trends yet", systemImage: "chart.line.uptrend.xyaxis")
                     } description: {
@@ -120,13 +95,13 @@ struct AnalysisView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 24) {
                             rangePicker
-                            categorySpendChart
-                            categoryAveragesList
-                            categoryFilterRow
-                            merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: topByFrequency, showsVisits: true)
-                            merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: topBySpend, showsVisits: false)
-                            if !recurring.isEmpty {
-                                merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: recurring, showsVisits: true)
+                            categorySpendChart(snapshot)
+                            categoryAveragesList(snapshot)
+                            categoryFilterRow(snapshot)
+                            merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: snapshot.topByFrequency, showsVisits: true)
+                            merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: snapshot.topBySpend, showsVisits: false)
+                            if !snapshot.recurring.isEmpty {
+                                merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: snapshot.recurring, showsVisits: true)
                             }
                         }
                         .padding()
@@ -165,13 +140,13 @@ struct AnalysisView: View {
 
     /// Lets you focus the frequency/spend/recurring sections below on a
     /// single category — e.g. tap "Dining Out" to see just restaurants.
-    private var categoryFilterRow: some View {
+    private func categoryFilterRow(_ snapshot: AnalysisSnapshot) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 filterChip(title: "All", symbol: "square.grid.2x2.fill", tint: .secondary, isSelected: categoryFilter == nil) {
                     categoryFilter = nil
                 }
-                ForEach(availableCategories) { category in
+                ForEach(snapshot.availableCategories) { category in
                     filterChip(title: category.displayName, symbol: category.symbol, tint: category.tint, isSelected: categoryFilter == category) {
                         categoryFilter = (categoryFilter == category) ? nil : category
                     }
@@ -207,7 +182,8 @@ struct AnalysisView: View {
     ]
 
     @ViewBuilder
-    private var categorySpendChart: some View {
+    private func categorySpendChart(_ snapshot: AnalysisSnapshot) -> some View {
+        let categoryMonthly = snapshot.categoryMonthly
         if !categoryMonthly.isEmpty {
             let visibleMonthly = categoryMonthly.filter { !hiddenChartCategories.contains($0.category) }
             VStack(alignment: .leading, spacing: 8) {
@@ -262,7 +238,8 @@ struct AnalysisView: View {
     }
 
     @ViewBuilder
-    private var categoryAveragesList: some View {
+    private func categoryAveragesList(_ snapshot: AnalysisSnapshot) -> some View {
+        let categoryAverages = snapshot.categoryAverages
         if !categoryAverages.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Monthly category averages")

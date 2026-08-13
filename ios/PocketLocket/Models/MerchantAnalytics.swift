@@ -21,7 +21,28 @@ enum MerchantNormalizer {
         "dc", "pr"
     ].joined(separator: "|")
 
+    /// Normalization is regex-heavy and the same merchant strings recur across
+    /// hundreds of transactions and every recomputation, so results are
+    /// memoized by raw title. The mapping is a pure function of its input, so
+    /// entries can never go stale.
+    private static let cacheLock = NSLock()
+    private static var cache: [String: String] = [:]
+
     static func normalize(_ raw: String) -> String {
+        cacheLock.lock()
+        let cached = cache[raw]
+        cacheLock.unlock()
+        if let cached { return cached }
+
+        let result = computeNormalized(raw)
+        cacheLock.lock()
+        if cache.count > 5000 { cache.removeAll(keepingCapacity: true) }
+        cache[raw] = result
+        cacheLock.unlock()
+        return result
+    }
+
+    private static func computeNormalized(_ raw: String) -> String {
         var value = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return raw }
 
@@ -161,7 +182,15 @@ enum MerchantAnalytics {
     /// Merchants that recur in at least `minMonths` distinct calendar months —
     /// a signal for habitual spend (recurring coffee run, weekly groceries, a
     /// subscription-like pattern) as opposed to a one-off purchase.
-    static func recurringMerchants(_ inputs: [Input], minMonths: Int = 3, calendar: Calendar = .current) -> [MerchantStats] {
+    /// - Parameter stats: Pre-computed `merchantStats(inputs)` for the same
+    ///   inputs, if the caller already has it — avoids a redundant O(n)
+    ///   grouping pass. When `nil` it is computed here.
+    static func recurringMerchants(
+        _ inputs: [Input],
+        minMonths: Int = 3,
+        calendar: Calendar = .current,
+        stats: [MerchantStats]? = nil
+    ) -> [MerchantStats] {
         let spending = spendingOnly(inputs)
         var monthsByMerchant: [String: Set<DateComponents>] = [:]
         for item in spending {
@@ -170,7 +199,8 @@ enum MerchantAnalytics {
             monthsByMerchant[key, default: []].insert(comps)
         }
         let qualifying = Set(monthsByMerchant.filter { $0.value.count >= minMonths }.keys)
-        return merchantStats(inputs, calendar: calendar).filter { qualifying.contains($0.name) }
+        let resolved = stats ?? merchantStats(inputs, calendar: calendar)
+        return resolved.filter { qualifying.contains($0.name) }
     }
 
     /// Per-category, per-calendar-month totals over the supplied transactions —
