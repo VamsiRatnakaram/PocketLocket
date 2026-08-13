@@ -14,6 +14,10 @@ struct AnalysisView: View {
     @State private var selectedMerchant: MerchantAnalytics.MerchantStats?
     @State private var selectedCategory: SpendCategory?
     @State private var categoryFilter: SpendCategory?
+    /// Categories tapped "off" in the chart legend, per Vamsi's feedback that
+    /// the 11-line chart is noisy — lets you isolate a few lines without
+    /// changing the merchant-section category filter below it.
+    @State private var hiddenChartCategories: Set<SpendCategory> = []
 
     /// The earliest transaction date across the *unfiltered* account/rule
     /// scope — used to decide which range options would actually change what's
@@ -205,10 +209,18 @@ struct AnalysisView: View {
     @ViewBuilder
     private var categorySpendChart: some View {
         if !categoryMonthly.isEmpty {
+            let visibleMonthly = categoryMonthly.filter { !hiddenChartCategories.contains($0.category) }
             VStack(alignment: .leading, spacing: 8) {
-                Text("Spend by category over time")
-                    .font(.headline)
-                Chart(categoryMonthly) { entry in
+                HStack {
+                    Text("Spend by category over time")
+                        .font(.headline)
+                    Spacer()
+                    if !hiddenChartCategories.isEmpty {
+                        Button("Show all") { hiddenChartCategories.removeAll() }
+                            .font(.caption)
+                    }
+                }
+                Chart(visibleMonthly) { entry in
                     LineMark(
                         x: .value("Month", entry.monthStart, unit: .month),
                         y: .value("Spent", entry.amount)
@@ -229,9 +241,19 @@ struct AnalysisView: View {
                 }
                 .chartLegend(.hidden)
                 .frame(height: 220)
-                CategoryLegendWrap(categories: Self.spendingCategoryOrder.filter { cat in
-                    categoryMonthly.contains { $0.category == cat }
-                })
+                CategoryLegendWrap(
+                    categories: Self.spendingCategoryOrder.filter { cat in
+                        categoryMonthly.contains { $0.category == cat }
+                    },
+                    hidden: hiddenChartCategories,
+                    onToggle: { category in
+                        if hiddenChartCategories.contains(category) {
+                            hiddenChartCategories.remove(category)
+                        } else {
+                            hiddenChartCategories.insert(category)
+                        }
+                    }
+                )
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -287,18 +309,29 @@ struct AnalysisView: View {
 
 /// A wrapping legend for the category spend chart — replaces the built-in
 /// Charts legend (which doesn't wrap and clips a 5th+ category off-screen).
+/// Each entry is tappable to hide/show that category's line, so a busy chart
+/// with many categories can be narrowed down to just the ones you care about.
 private struct CategoryLegendWrap: View {
     let categories: [SpendCategory]
+    let hidden: Set<SpendCategory>
+    let onToggle: (SpendCategory) -> Void
 
     var body: some View {
         FlowLayout(spacing: 10) {
             ForEach(categories) { category in
-                HStack(spacing: 4) {
-                    Circle().fill(category.tint).frame(width: 8, height: 8)
-                    Text(category.displayName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                let isHidden = hidden.contains(category)
+                Button { onToggle(category) } label: {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(isHidden ? Color.secondary.opacity(0.3) : category.tint)
+                            .frame(width: 8, height: 8)
+                        Text(category.displayName)
+                            .font(.caption2)
+                            .foregroundStyle(isHidden ? .tertiary : .secondary)
+                            .strikethrough(isHidden)
+                    }
                 }
+                .buttonStyle(.plain)
             }
         }
     }
