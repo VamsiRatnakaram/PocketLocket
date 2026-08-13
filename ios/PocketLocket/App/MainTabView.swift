@@ -26,6 +26,10 @@ struct MainTabView: View {
                 .tabItem { Label("Save", systemImage: "sparkles") }
         }
         .task {
+            // Backfill first so existing history (and CSV imports, which never
+            // touch the sync path) gets paired even when there's no SimpleFIN
+            // connection or the refresh below fails.
+            try? TransferMatchService.recompute(in: context)
             try? await SyncService.shared.refresh(context: context)
         }
     }

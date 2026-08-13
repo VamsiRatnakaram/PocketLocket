@@ -15,6 +15,9 @@ final class SyncService {
 
     func refresh(context: ModelContext) async throws {
         try await refreshSimpleFIN(context: context)
+        // After new rows land, re-pair transfers across the whole history: the
+        // two legs of a card payoff routinely arrive in different syncs.
+        try TransferMatchService.recompute(in: context)
     }
 
     private func refreshSimpleFIN(context: ModelContext) async throws {
