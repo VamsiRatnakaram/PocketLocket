@@ -5,6 +5,7 @@ import SwiftData
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    @Query(sort: \TransactionRecord.date, order: .forward) private var allTransactions: [TransactionRecord]
 
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage("ringStyle") private var ringStyleRaw: String = RingStyle.donut.rawValue
@@ -52,7 +53,7 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                 }
 
-                Section("Connections") {
+                Section {
                     Button { showSimpleFIN = true } label: {
                         HStack {
                             Label("SimpleFIN", systemImage: "arrow.triangle.2.circlepath")
@@ -71,6 +72,12 @@ struct SettingsView: View {
                         } label: {
                             Text("Disconnect SimpleFIN")
                         }
+                    }
+                } header: {
+                    Text("Connections")
+                } footer: {
+                    if simplefinConnected, let earliestDataText {
+                        Text(earliestDataText)
                     }
                 }
 
@@ -148,6 +155,18 @@ struct SettingsView: View {
         }
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
+    }
+
+    /// Shows the oldest synced transaction date so you can tell whether
+    /// SimpleFIN/your bank is providing more history than what's currently
+    /// visible — the app always requests 24 months, but each bank's own
+    /// feed decides how far back it actually returns.
+    private var earliestDataText: String? {
+        guard let earliest = allTransactions.first?.date else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        let months = Calendar.current.dateComponents([.month], from: earliest, to: Date()).month ?? 0
+        return "Oldest synced transaction: \(formatter.string(from: earliest)) (~\(months) month\(months == 1 ? "" : "s") of history). PocketLocket requests up to 24 months, but each bank's SimpleFIN feed decides how far back it actually shares."
     }
 
     private var supportURL: URL? {
