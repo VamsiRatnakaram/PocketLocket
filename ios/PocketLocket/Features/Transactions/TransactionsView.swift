@@ -161,6 +161,7 @@ struct TransactionsView: View {
                         Button { isSelecting = true } label: {
                             Image(systemName: "checklist")
                         }
+                        .accessibilityLabel("Select transactions")
                         .disabled(sortedFiltered.isEmpty)
                     }
                 }
