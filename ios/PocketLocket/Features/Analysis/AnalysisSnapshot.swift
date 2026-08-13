@@ -8,7 +8,7 @@ import Foundation
 /// transaction's category several times over — and SwiftUI re-evaluates `body`
 /// many times per tab load. Bundling the results into one value lets the view
 /// compute once per *data* change instead of once per render pass.
-struct AnalysisSnapshot {
+struct AnalysisSnapshot: Sendable {
     var isEmpty: Bool = true
     var availableCategories: [SpendCategory] = []
     var topByFrequency: [MerchantAnalytics.MerchantStats] = []
@@ -61,7 +61,7 @@ struct AnalysisSnapshot {
 /// sync, or recategorization produces a different key and forces a recompute.
 /// Nothing is memoized permanently — only the most recent key is retained.
 final class AnalysisSnapshotCache {
-    struct InputsKey: Equatable {
+    struct InputsKey: Equatable, Sendable {
         var dataHash: Int
         var rulesHash: Int
         var excludedAccountsRaw: String

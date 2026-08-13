@@ -56,57 +56,74 @@ struct AnalysisView: View {
         }
     }
 
-    /// Memoization store for the analysis pipeline. Held in `@State` so it
-    /// survives the many `body` re-evaluations SwiftUI performs per tab load,
-    /// and keyed by a content hash of the transactions/rules so any data change
-    /// (sync, edit, recategorization) recomputes immediately.
-    @State private var cache = AnalysisSnapshotCache()
+    /// Async orchestration for the analysis pipeline. Shared (see the type's
+    /// docs) so the last snapshot and the memo survive this view being
+    /// destroyed and recreated by the Analysis/Save picker.
+    @State private var coordinator = AnalysisSnapshotCoordinator.shared
 
-    private var snapshot: AnalysisSnapshot {
-        let key = AnalysisSnapshotCache.InputsKey(
-            dataHash: AnalysisSnapshotCache.dataHash(transactions),
-            rulesHash: AnalysisSnapshotCache.rulesHash(rules),
-            excludedAccountsRaw: excludedAccountsRaw,
-            range: range
+    /// Content-addressed identity of the current analysis inputs. Hashing a few
+    /// scalar fields per transaction is O(n) but trivially cheap next to the
+    /// regex/token work it guards, and — unlike a fingerprint such as
+    /// count+max(date) — it cannot miss an edit or a recategorization.
+    private var request: AnalysisSnapshotCoordinator.Request {
+        AnalysisSnapshotCoordinator.Request(
+            key: AnalysisSnapshotCache.InputsKey(
+                dataHash: AnalysisSnapshotCache.dataHash(transactions),
+                rulesHash: AnalysisSnapshotCache.rulesHash(rules),
+                excludedAccountsRaw: excludedAccountsRaw,
+                range: range
+            ),
+            categoryFilter: categoryFilter
         )
-        return cache.snapshot(key: key, categoryFilter: categoryFilter) {
-            scoped.map {
-                MerchantAnalytics.Input(
-                    title: $0.title,
-                    amount: $0.amount,
-                    category: $0.resolvedCategory(using: rules),
-                    date: $0.date
-                )
-            }
-        }
+    }
+
+    /// Extracts plain values on the main thread (SwiftData models can't cross
+    /// to a background executor) and hands them to the coordinator. Extraction
+    /// is eager rather than deferred into the debounced task so the copies
+    /// can't be invalidated by a delete happening in the meantime.
+    private func requestSnapshot(_ request: AnalysisSnapshotCoordinator.Request) {
+        coordinator.refresh(
+            request,
+            transactions: scoped.map(AnalysisTransaction.init(record:)),
+            rules: rules.map(CategoryRuleSpec.init(rule:))
+        )
     }
 
     var body: some View {
         NavigationStack {
-            let snapshot = self.snapshot
             Group {
-                if snapshot.isEmpty {
-                    ContentUnavailableView {
-                        Label("No trends yet", systemImage: "chart.line.uptrend.xyaxis")
-                    } description: {
-                        Text("Connect an account or import a statement to see merchant and category trends.")
+                if let snapshot = coordinator.snapshot {
+                    if snapshot.isEmpty {
+                        ContentUnavailableView {
+                            Label("No trends yet", systemImage: "chart.line.uptrend.xyaxis")
+                        } description: {
+                            Text("Connect an account or import a statement to see merchant and category trends.")
+                        }
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 24) {
+                                rangePicker
+                                categorySpendChart(snapshot)
+                                categoryAveragesList(snapshot)
+                                categoryFilterRow(snapshot)
+                                merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: snapshot.topByFrequency, showsVisits: true)
+                                merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: snapshot.topBySpend, showsVisits: false)
+                                if !snapshot.recurring.isEmpty {
+                                    merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: snapshot.recurring, showsVisits: true)
+                                }
+                            }
+                            .padding()
+                        }
                     }
                 } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 24) {
-                            rangePicker
-                            categorySpendChart(snapshot)
-                            categoryAveragesList(snapshot)
-                            categoryFilterRow(snapshot)
-                            merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: snapshot.topByFrequency, showsVisits: true)
-                            merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: snapshot.topBySpend, showsVisits: false)
-                            if !snapshot.recurring.isEmpty {
-                                merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: snapshot.recurring, showsVisits: true)
-                            }
-                        }
-                        .padding()
-                    }
+                    // First load only — never the empty state, which would be a
+                    // lie while the computation is still running.
+                    ProgressView("Analyzing your spending…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+            }
+            .onChange(of: request, initial: true) { _, newRequest in
+                requestSnapshot(newRequest)
             }
             .navigationTitle("Analysis")
             .navigationBarTitleDisplayMode(.inline)

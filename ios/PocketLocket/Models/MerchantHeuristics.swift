@@ -255,6 +255,7 @@ enum MerchantHeuristics {
         case unmatched
     }
 
+    private static let cacheLock = NSLock()
     private static var cache: [String: CachedCategory] = [:]
 
     static func normalized(_ value: String) -> String {
@@ -320,16 +321,24 @@ enum MerchantHeuristics {
         return nil
     }
 
+    /// Thread-safe: category resolution now also runs on a background executor
+    /// for the Analysis tab while the main thread may be resolving categories
+    /// for other views, so the memo table must be locked.
     static func category(for haystack: String) -> SpendCategory? {
         let cacheKey = normalized(haystack)
-        if let cached = cache[cacheKey] {
+        cacheLock.lock()
+        let cached = cache[cacheKey]
+        cacheLock.unlock()
+        if let cached {
             switch cached {
             case let .match(category): return category
             case .unmatched: return nil
             }
         }
         let match = category(forTokens: tokens(in: haystack))
+        cacheLock.lock()
         cache[cacheKey] = match.map(CachedCategory.match) ?? .unmatched
+        cacheLock.unlock()
         return match
     }
 

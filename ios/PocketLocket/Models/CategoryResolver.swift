@@ -1,6 +1,25 @@
 import Foundation
 import SwiftData
 
+/// A `CategoryRule` reduced to plain values.
+///
+/// `CategoryRule` is a SwiftData `@Model` and therefore bound to its
+/// `ModelContext` — it can't be handed to a background executor. Extract these
+/// on the main thread instead and pass them across.
+struct CategoryRuleSpec: Sendable, Hashable {
+    let matchText: String
+    let category: SpendCategory
+
+    init(matchText: String, category: SpendCategory) {
+        self.matchText = matchText
+        self.category = category
+    }
+
+    init(rule: CategoryRule) {
+        self.init(matchText: rule.matchText, category: rule.category)
+    }
+}
+
 struct CategoryRuleIndex {
     private struct Entry {
         let tokens: [String]
@@ -10,7 +29,11 @@ struct CategoryRuleIndex {
     private let entries: [Entry]
 
     init(rules: [CategoryRule]) {
-        entries = rules.map {
+        self.init(specs: rules.map(CategoryRuleSpec.init(rule:)))
+    }
+
+    init(specs: [CategoryRuleSpec]) {
+        entries = specs.map {
             Entry(tokens: MerchantHeuristics.tokens(in: $0.matchText), category: $0.category)
         }
     }
@@ -47,9 +70,20 @@ enum CategoryResolver {
         plaidPrimary: String?,
         rules: [CategoryRule]
     ) -> SpendCategory {
+        resolve(name: name, merchant: merchant, plaidPrimary: plaidPrimary, index: ruleIndex(for: rules))
+    }
+
+    /// Same resolution, but against a pre-built rule index instead of live
+    /// SwiftData models — usable off the main thread (see `CategoryRuleSpec`).
+    static func resolve(
+        name: String,
+        merchant: String?,
+        plaidPrimary: String?,
+        index: CategoryRuleIndex
+    ) -> SpendCategory {
         let haystack = ((merchant ?? "") + " " + name).lowercased()
 
-        if let ruleCategory = ruleIndex(for: rules).category(for: haystack) {
+        if let ruleCategory = index.category(for: haystack) {
             return ruleCategory
         }
         if let providerCategory = CategoryMapper.recognizedCategory(primary: plaidPrimary) {
