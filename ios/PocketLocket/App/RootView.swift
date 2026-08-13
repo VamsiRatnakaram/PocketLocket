@@ -36,7 +36,11 @@ struct RootView: View {
             SyncService.shared.authContext = state == .unlocked ? gate.authenticationContext : nil
         }
         .overlay {
-            if scenePhase != .active {
+            // Only cover the *unlocked* main app content when backgrounding —
+            // LockView is already privacy-safe, and covering it too caused a
+            // visible flicker because scenePhase toggles active/inactive
+            // rapidly while the system Face ID sheet is presented/dismissed.
+            if scenePhase != .active && gate.isUnlocked {
                 PrivacyCover().transition(.opacity)
             }
         }
