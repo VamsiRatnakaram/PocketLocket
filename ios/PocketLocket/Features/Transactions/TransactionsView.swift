@@ -135,6 +135,7 @@ struct TransactionsView: View {
             }
             .listStyle(.plain)
             .navigationTitle("Transactions")
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search merchants")
             .safeAreaInset(edge: .top) {
                 if !isSelecting { typeBar }
@@ -157,8 +158,10 @@ struct TransactionsView: View {
                         Button { showAdd = true } label: { Image(systemName: "plus") }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Select") { isSelecting = true }
-                            .disabled(sortedFiltered.isEmpty)
+                        Button { isSelecting = true } label: {
+                            Image(systemName: "checklist")
+                        }
+                        .disabled(sortedFiltered.isEmpty)
                     }
                 }
             }
