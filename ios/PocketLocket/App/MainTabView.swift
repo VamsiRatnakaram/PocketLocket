@@ -5,7 +5,7 @@ struct MainTabView: View {
     @State private var selection: Tab = MainTabView.initialTab()
     @Environment(\.modelContext) private var context
 
-    enum Tab: Hashable { case home, transactions, accounts, save }
+    enum Tab: Hashable { case home, transactions, accounts, save, analysis }
 
     var body: some View {
         TabView(selection: $selection) {
@@ -24,13 +24,17 @@ struct MainTabView: View {
             SuggestionsView()
                 .tag(Tab.save)
                 .tabItem { Label("Save", systemImage: "sparkles") }
+
+            AnalysisRootView()
+                .tag(Tab.analysis)
+                .tabItem { Label("Analysis", systemImage: "chart.line.uptrend.xyaxis") }
         }
         .task {
             try? await SyncService.shared.refresh(context: context)
         }
     }
 
-    /// Allows `-tab <home|transactions|accounts|save>` at launch (used for testing).
+    /// Allows `-tab <home|transactions|accounts|save|analysis>` at launch (used for testing).
     static func initialTab() -> Tab {
         let args = CommandLine.arguments
         if let index = args.firstIndex(of: "-tab"), index + 1 < args.count {
@@ -38,6 +42,7 @@ struct MainTabView: View {
             case "transactions": return .transactions
             case "accounts": return .accounts
             case "save": return .save
+            case "analysis": return .analysis
             default: return .home
             }
         }
