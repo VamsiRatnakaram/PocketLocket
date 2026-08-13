@@ -33,12 +33,30 @@ struct SubscriptionsView: View {
         /// rather than a raw occurrence count — a count-based threshold
         /// (e.g. "6+ hits in 13mo = monthly") falsely calls genuinely-monthly
         /// charges "yearly" when the user only has a few months of history.
-        var isYearly: Bool {
-            guard let interval = averageIntervalDays else { return false }
-            return interval > 180
+        ///
+        /// The monthly-equivalent amount is normalized continuously from the
+        /// observed interval (rather than a binary monthly/yearly split) so
+        /// quarterly and semiannual charges aren't mis-scaled by a hard
+        /// cutoff, and so billing-date jitter near any single threshold
+        /// can't swing the estimate by a large multiple. With only one
+        /// observed charge (no interval yet), we conservatively assume
+        /// yearly — same as the prior count-based default for a low
+        /// occurrence count — rather than assuming monthly, since a false
+        /// "monthly" wildly overstates a true annual subscription.
+        var monthlyEquivalent: Double {
+            guard let interval = averageIntervalDays, interval > 1 else { return amount / 12 }
+            let monthsPerCharge = interval / 30.44
+            return amount / max(monthsPerCharge, 1.0 / 3) // never scale up more than ~3x for very frequent charges
         }
-        var monthlyEquivalent: Double { isYearly ? amount / 12 : amount }
-        var cadence: String { isYearly ? "yearly" : "monthly" }
+        var cadence: String {
+            guard let interval = averageIntervalDays else { return "yearly" }
+            switch interval {
+            case ..<45: return "monthly"
+            case ..<135: return "quarterly"
+            case ..<270: return "semiannual"
+            default: return "yearly"
+            }
+        }
     }
 
     private var subscriptions: [Sub] {
