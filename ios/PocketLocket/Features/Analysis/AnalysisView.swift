@@ -91,10 +91,6 @@ struct AnalysisView: View {
         MerchantAnalytics.topBySpend(filteredMerchantStats, limit: 8)
     }
 
-    private var recurring: [MerchantAnalytics.MerchantStats] {
-        MerchantAnalytics.recurringMerchants(filteredInputs, minMonths: 3)
-    }
-
     private var categoryAverages: [MerchantAnalytics.CategoryAverage] {
         MerchantAnalytics.categoryAverages(inputs)
     }
@@ -121,9 +117,6 @@ struct AnalysisView: View {
                             categoryFilterRow
                             merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: topByFrequency, showsVisits: true)
                             merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: topBySpend, showsVisits: false)
-                            if !recurring.isEmpty {
-                                merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: recurring, showsVisits: true)
-                            }
                         }
                         .padding()
                     }
@@ -159,8 +152,8 @@ struct AnalysisView: View {
         range = widest
     }
 
-    /// Lets you focus the frequency/spend/recurring sections below on a
-    /// single category — e.g. tap "Dining Out" to see just restaurants.
+    /// Lets you focus the frequency/spend sections below on a single
+    /// category — e.g. tap "Dining Out" to see just restaurants.
     private var categoryFilterRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
