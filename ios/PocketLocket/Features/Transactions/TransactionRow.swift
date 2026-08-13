@@ -23,6 +23,12 @@ struct TransactionRow: View {
                     if txn.pending {
                         Text("• Pending").foregroundStyle(.orange)
                     }
+                    // The spend ring silently drops non-spending categories.
+                    // Without a marker there's no way to tell an excluded
+                    // transaction from one the app simply never imported.
+                    if !category.isSpending && txn.amount > 0 {
+                        Text("• Not in budget")
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)

@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var monthOffset = 0
     @State private var scope: Scope = .month
     @State private var selectedCategory: SpendCategory?
+    @State private var showExcluded = false
 
     enum Scope: Hashable { case month, year }
 
@@ -92,6 +93,9 @@ struct HomeView: View {
                 SimpleFINConnectView { Task { await refresh() } }
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
+            .sheet(isPresented: $showExcluded) {
+                ExcludedTransactionsView(interval: monthInterval, periodLabel: monthTitle)
+            }
             .fileImporter(isPresented: $showImporter, allowedContentTypes: ImportService.allowedTypes) { result in
                 handleImport(result)
             }
@@ -119,6 +123,7 @@ struct HomeView: View {
                 ringSection
                     .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: monthOffset)
                 remainingLabel
+                excludedLabel
 
                 if viewModel.spends.isEmpty {
                     emptyState
@@ -209,6 +214,28 @@ struct HomeView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// Says out loud how much money left your accounts this month without
+    /// landing in the budget. The ring silently drops transfers and card
+    /// payments, which makes a month impossible to reconcile against a
+    /// statement — this makes the gap visible and, more importantly, auditable
+    /// by tapping through to the exact transactions.
+    @ViewBuilder
+    private var excludedLabel: some View {
+        if viewModel.excludedTotal > 0 {
+            Button { showExcluded = true } label: {
+                HStack(spacing: 4) {
+                    Text("\(CurrencyFormatter.string(viewModel.excludedTotal)) not in budget")
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows the transfers and payments left out of this month's budget")
         }
     }
 

@@ -11,6 +11,7 @@ struct TransactionsView: View {
     @State private var accountFilter: String?
     @State private var categoryFilter: SpendCategory?
     @State private var typeFilter: TxnType = .all
+    @State private var budgetFilter: BudgetFilter = .all
     @State private var period: Period = .all
     @State private var sortOrder: SortOrder = .dateDesc
     @State private var detail: TransactionRecord?
@@ -24,6 +25,25 @@ struct TransactionsView: View {
         case all, expenses, income
         var id: String { rawValue }
         var label: String { rawValue.capitalized }
+    }
+
+    /// Lets you isolate the outflows the budget ignores. Transfers and card
+    /// payments are excluded from the spend ring but look identical to
+    /// everything else in this list, so there was no way to review what the
+    /// app had quietly set aside — or to spot a purchase misfiled as a
+    /// transfer.
+    enum BudgetFilter: String, CaseIterable, Identifiable {
+        case all = "All transactions"
+        case counted = "In budget"
+        case excluded = "Not in budget"
+        var id: String { rawValue }
+        var symbol: String {
+            switch self {
+            case .all: return "tray.full"
+            case .counted: return "checkmark.circle"
+            case .excluded: return "minus.circle"
+            }
+        }
     }
 
     enum Period: String, CaseIterable, Identifiable {
@@ -69,6 +89,7 @@ struct TransactionsView: View {
 
     private var hasActiveFilters: Bool {
         accountFilter != nil || categoryFilter != nil || typeFilter != .all || period != .all
+            || budgetFilter != .all
     }
 
     private var filtered: [TransactionRecord] {
@@ -76,6 +97,11 @@ struct TransactionsView: View {
             if let periodInterval, !periodInterval.contains(txn.date) { return false }
             if let accountFilter, txn.accountId != accountFilter { return false }
             if let categoryFilter, category(for: txn) != categoryFilter { return false }
+            switch budgetFilter {
+            case .all: break
+            case .counted: if !category(for: txn).isSpending { return false }
+            case .excluded: if category(for: txn).isSpending { return false }
+            }
             switch typeFilter {
             case .all: break
             case .expenses: if txn.amount <= 0 { return false }
@@ -288,6 +314,13 @@ struct TransactionsView: View {
                         }
                     }
                 }
+                Menu("Budget") {
+                    ForEach(BudgetFilter.allCases) { option in
+                        Button { budgetFilter = option } label: {
+                            Label(option.rawValue, systemImage: budgetFilter == option ? "checkmark" : option.symbol)
+                        }
+                    }
+                }
                 Menu("Period") {
                     ForEach(Period.allCases) { option in
                         Button { period = option } label: {
@@ -309,6 +342,7 @@ struct TransactionsView: View {
                         categoryFilter = nil
                         typeFilter = .all
                         period = .all
+                        budgetFilter = .all
                     } label: {
                         Label("Clear filters", systemImage: "xmark.circle")
                     }
