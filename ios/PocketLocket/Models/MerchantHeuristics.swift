@@ -32,18 +32,8 @@ enum MerchantHeuristics {
         //     move money between two of the user's own accounts and would
         //     otherwise double-count as spend on top of the card's own
         //     transactions for the same purchases.
-        ("capital one mobile pymt", .transfer), ("capital one online pymt", .transfer),
-        ("capital one payment", .transfer), ("chase credit crd", .transfer),
-        ("chase card payment", .transfer), ("discover e-payment", .transfer),
-        ("discover payment", .transfer), ("amex epayment", .transfer), ("amex online payment", .transfer),
-        ("amex payment", .transfer), ("american express payment", .transfer),
-        ("citi card payment", .transfer), ("citi autopay", .transfer),
-        ("barclaycard payment", .transfer), ("synchrony payment", .transfer),
-        ("us bank cc payment", .transfer), ("wells fargo cc payment", .transfer),
-        ("wf card payment", .transfer), ("cc payment", .transfer), ("cc pymt", .transfer),
-        ("card autopay", .transfer), ("creditcard payment", .transfer),
-        ("mobile banking payment", .transfer), ("banking payment to crd", .transfer),
-        ("payment to crd", .transfer), ("payment to card", .transfer),
+        ("chase credit crd", .transfer), ("cc payment", .transfer), ("cc pymt", .transfer),
+        ("payment to crd", .transfer),
 
         // 2) Income (inflows).
         ("payroll", .income), ("paycheck", .income), ("direct deposit", .income),
