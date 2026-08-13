@@ -204,15 +204,8 @@ struct AnalysisView: View {
         if !categoryMonthly.isEmpty {
             let visibleMonthly = categoryMonthly.filter { !hiddenChartCategories.contains($0.category) }
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Spend by category over time")
-                        .font(.headline)
-                    Spacer()
-                    if !hiddenChartCategories.isEmpty {
-                        Button("Show all") { hiddenChartCategories.removeAll() }
-                            .font(.caption)
-                    }
-                }
+                Text("Spend by category over time")
+                    .font(.headline)
                 Chart(visibleMonthly) { entry in
                     LineMark(
                         x: .value("Month", entry.monthStart, unit: .month),
@@ -245,7 +238,8 @@ struct AnalysisView: View {
                         } else {
                             hiddenChartCategories.insert(category)
                         }
-                    }
+                    },
+                    onShowAll: { hiddenChartCategories.removeAll() }
                 )
             }
             .padding(16)
@@ -309,6 +303,7 @@ private struct CategoryLegendWrap: View {
     let categories: [SpendCategory]
     let hidden: Set<SpendCategory>
     let onToggle: (SpendCategory) -> Void
+    let onShowAll: () -> Void
 
     var body: some View {
         FlowLayout(spacing: 10) {
@@ -327,6 +322,17 @@ private struct CategoryLegendWrap: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            // Kept in the legend rather than beside the chart's title, and
+            // always laid out (only faded) rather than inserted on demand:
+            // either would resize content above the chart and shove it down
+            // the moment you hide a line.
+            Button("Show all", action: onShowAll)
+                .font(.caption2.weight(.semibold))
+                .opacity(hidden.isEmpty ? 0 : 1)
+                .disabled(hidden.isEmpty)
+                .accessibilityHidden(hidden.isEmpty)
+                .animation(.easeInOut(duration: 0.15), value: hidden.isEmpty)
         }
     }
 }
