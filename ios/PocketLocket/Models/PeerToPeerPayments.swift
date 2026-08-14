@@ -21,22 +21,20 @@ enum PeerToPeerPayments {
     ]
 
     static func isPlatform(_ descriptor: String) -> Bool {
-        let tokens = MerchantHeuristics.tokens(in: descriptor)
-        return platforms.contains { MerchantHeuristics.contains(MerchantHeuristics.tokens(in: $0), in: tokens) }
+        isPlatform(tokens: MerchantHeuristics.tokens(in: descriptor))
     }
 
-    static func isSelfMovement(_ descriptor: String) -> Bool {
-        let tokens = MerchantHeuristics.tokens(in: descriptor)
-        return selfMovementMarkers.contains { MerchantHeuristics.contains(MerchantHeuristics.tokens(in: $0), in: tokens) }
+    static func isPlatform(tokens: [String]) -> Bool {
+        platforms.contains { MerchantHeuristics.contains(MerchantHeuristics.tokens(in: $0), in: tokens) }
+    }
+
+    static func isSelfMovement(tokens: [String]) -> Bool {
+        selfMovementMarkers.contains { MerchantHeuristics.contains(MerchantHeuristics.tokens(in: $0), in: tokens) }
     }
 
     /// The category a peer-to-peer descriptor should resolve to, or `nil` to
     /// leave it uncategorized.
-    ///
-    /// Returning `nil` deliberately short-circuits the generic transfer
-    /// keywords: a bank rendering a Venmo as "VENMO PAYMENT ACH DEBIT" would
-    /// otherwise match "ach debit" and become a transfer through the back door.
-    static func category(for descriptor: String) -> SpendCategory? {
-        isSelfMovement(descriptor) ? .transfer : nil
+    static func category(forTokens tokens: [String]) -> SpendCategory? {
+        isSelfMovement(tokens: tokens) ? .transfer : nil
     }
 }

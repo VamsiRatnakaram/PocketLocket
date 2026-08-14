@@ -321,13 +321,25 @@ enum MerchantHeuristics {
     }
 
     private static func category(forTokens tokens: [String]) -> SpendCategory? {
+        var match: SpendCategory?
         for entry in tokenizedTable where contains(entry.tokens, in: tokens) {
-            return entry.category
+            match = entry.category
+            break
         }
-        for fallback in processorFallbacks where contains(fallback.tokens, in: tokens) {
-            return fallback.category
+        if match == nil {
+            for fallback in processorFallbacks where contains(fallback.tokens, in: tokens) {
+                match = fallback.category
+                break
+            }
         }
-        return nil
+        // A peer-to-peer rail only decides the category when nothing else in
+        // the descriptor did. "PAYPAL *NETFLIX.COM" names a real merchant and
+        // keeps it; "VENMO PAYMENT ACH DEBIT" names none, so the rail words
+        // must not be allowed to make it a transfer.
+        if PeerToPeerPayments.isPlatform(tokens: tokens), match == nil || match == .transfer {
+            return PeerToPeerPayments.category(forTokens: tokens)
+        }
+        return match
     }
 
     /// Peer-to-peer payment apps, where the descriptor names the platform but
@@ -359,14 +371,7 @@ enum MerchantHeuristics {
             case .unmatched: return nil
             }
         }
-    var match = category(forTokens: tokens(in: haystack))
-        // A peer-to-peer rail only decides the category when nothing else in
-        // the descriptor did. "PAYPAL *NETFLIX.COM" names a real merchant and
-        // keeps it; "VENMO PAYMENT ACH DEBIT" names none, so the rail words
-        // must not make it a transfer.
-        if PeerToPeerPayments.isPlatform(haystack), match == nil || match == .transfer {
-            match = PeerToPeerPayments.category(for: haystack)
-        }
+        let match = category(forTokens: tokens(in: haystack))
     cacheLock.lock()
         cache[cacheKey] = match.map(CachedCategory.match) ?? .unmatched
         cacheLock.unlock()
