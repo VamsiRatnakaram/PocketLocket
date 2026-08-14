@@ -168,4 +168,93 @@ final class PerTransactionCategoryTests: XCTestCase {
         XCTAssertFalse(MerchantHeuristics.isPeerToPeer("BLUE BOTTLE COFFEE"))
         XCTAssertFalse(MerchantHeuristics.isPeerToPeer("CHASE CREDIT CRD AUTOPAY"))
     }
+
+    @MainActor
+    func testTaughtRuleReachesEveryDescriptorFromTheSameMerchant() throws {
+        let families: [[String]] = [
+            ["SAFEWAY 1993 SEATTLE WA", "Safeway #1993", "Safeway"],
+            ["PUGET SOUND ENERGY BILLPAY 4471", "PUGET SOUND ENERGY WEBPAY 8832"],
+            ["Lime*RIDE S2FQ", "LIME*1"],
+            ["WEBPASS INC 123ABC", "WEBPASS INC 998ZZ"],
+        ]
+        let container = try ModelContainer(
+            for: TransactionRecord.self, CategoryRule.self, AccountRecord.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        for family in families {
+            let ledger = family.map {
+                TransactionRecord(
+                    id: $0, plaidTransactionId: $0, name: $0, merchantName: $0,
+                    amount: 10, isoCurrencyCode: "USD", date: Date(), pending: false,
+                    categoryPrimary: nil, categoryDetailed: nil, logoURL: nil, accountId: nil
+                )
+            }
+            ledger.forEach(container.mainContext.insert)
+
+            // Whichever transaction the user happens to tap must teach a rule
+            // that reaches the whole merchant.
+            for taught in ledger {
+                let key = CategoryAssignment.matchKey(for: taught, in: ledger)
+                let index = CategoryRuleIndex(
+                    specs: [CategoryRuleSpec(matchText: key, category: .housing)]
+                )
+                let reached = family.filter { index.category(for: $0) != nil }
+                XCTAssertEqual(reached.count, family.count, "taught from \(taught.name) as \(key)")
+            }
+            ledger.forEach(container.mainContext.delete)
+        }
+    }
+
+    @MainActor
+    func testTaughtRuleDoesNotLeakIntoADifferentSubBrand() throws {
+        let container = try ModelContainer(
+            for: TransactionRecord.self, CategoryRule.self, AccountRecord.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let ledger = ["UBER *TRIP", "UBER *EATS"].map {
+            TransactionRecord(
+                    id: $0, plaidTransactionId: $0, name: $0, merchantName: $0,
+                    amount: 10, isoCurrencyCode: "USD", date: Date(), pending: false,
+                    categoryPrimary: nil, categoryDetailed: nil, logoURL: nil, accountId: nil
+                )
+        }
+        ledger.forEach(container.mainContext.insert)
+        let eatsKey = CategoryAssignment.matchKey(for: ledger[1], in: ledger)
+        let eats = CategoryRuleIndex(specs: [CategoryRuleSpec(matchText: eatsKey, category: .food)])
+        XCTAssertNil(eats.category(for: "UBER *TRIP"))
+        XCTAssertNotNil(eats.category(for: "UBER *EATS"))
+
+        // …and the reverse: teaching from a ride must not swallow Uber Eats.
+        let tripKey = CategoryAssignment.matchKey(for: ledger[0], in: ledger)
+        let trip = CategoryRuleIndex(specs: [CategoryRuleSpec(matchText: tripKey, category: .transport)])
+        XCTAssertNil(trip.category(for: "UBER *EATS"))
+        XCTAssertNotNil(trip.category(for: "UBER *TRIP"))
+    }
+
+    @MainActor
+    func testTaughtRuleKeyAndMatchingIgnoreCase() throws {
+        let container = try ModelContainer(
+            for: TransactionRecord.self, CategoryRule.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let variants = ["SAFEWAY 1993 SEATTLE WA", "safeway #1993", "SaFeWaY"]
+        let ledger = variants.map {
+            TransactionRecord(
+                id: $0, plaidTransactionId: $0, name: $0, merchantName: $0,
+                amount: 10, isoCurrencyCode: "USD", date: Date(), pending: false,
+                categoryPrimary: nil, categoryDetailed: nil, logoURL: nil, accountId: nil
+            )
+        }
+        ledger.forEach(container.mainContext.insert)
+
+        let keys = Set(ledger.map { CategoryAssignment.matchKey(for: $0, in: ledger) })
+        XCTAssertEqual(keys, ["safeway"])
+
+        let index = CategoryRuleIndex(
+            specs: [CategoryRuleSpec(matchText: "SAFEWAY", category: .groceries)]
+        )
+        for variant in variants {
+            XCTAssertEqual(index.category(for: variant), .groceries, variant)
+        }
+    }
 }

@@ -16,7 +16,7 @@ struct MerchantDetailView: View {
             .filter {
                 $0.amount > 0
                     && $0.resolvedCategory(using: rules).isSpending
-                    && MerchantNormalizer.normalize($0.title) == stats.name
+                    && stats.matches($0.title)
             }
             .sorted { $0.date > $1.date }
     }

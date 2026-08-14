@@ -76,6 +76,31 @@ final class MerchantHeuristicsTests: XCTestCase {
         XCTAssertEqual(category("FOREIGN TRANSACTION FEE"), .fees)
     }
 
+    func testSharedScootersAndBikesAreTransport() {
+        XCTAssertEqual(category("LIME*1"), .transport)
+        XCTAssertEqual(category("Lime"), .transport)
+        XCTAssertEqual(category("LIMEBIKE"), .transport)
+        XCTAssertEqual(category("BIRD RIDES INC"), .transport)
+        XCTAssertEqual(category("CITI BIKE NYC"), .transport)
+    }
+
+    /// "lime" and "spin" are ordinary words as well as scooter brands, so the
+    /// restaurants that contain them are listed ahead of the brand.
+    func testRestaurantsContainingScooterBrandNamesStayFood() {
+        XCTAssertEqual(category("LIME LEAF THAI CUISINE"), .food)
+        XCTAssertEqual(category("LIME FRESH MEXICAN GRILL"), .food)
+        XCTAssertEqual(category("KEY LIME PIE CO"), .food)
+        XCTAssertEqual(category("SPIN PIZZA KC"), .food)
+    }
+
+    /// Whole-token matching, so a brand name inside a longer word is not a hit.
+    /// Asserted as "not transport" rather than "no category", because the rest
+    /// of the descriptor is allowed to match something else.
+    func testScooterBrandDoesNotMatchInsideLongerWords() {
+        XCTAssertNotEqual(category("SUBLIME DONUTS"), .transport)
+        XCTAssertNotEqual(category("LIMELIGHT SUPPLY CO"), .transport)
+    }
+
     func testUnknownMerchantFallsThrough() {
         XCTAssertNil(category("ACME WIDGETS LLC"))
     }

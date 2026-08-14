@@ -76,6 +76,16 @@ enum MerchantHeuristics {
         ("transit", .transport), ("autozone", .transport), ("o'reilly", .transport),
         ("jiffy lube", .transport), ("car wash", .transport),
 
+        // Shared scooters and bikes. "lime" and "spin" are also ordinary
+        // words, so the restaurant names that contain them are listed first —
+        // the table is first-match-wins over contiguous tokens.
+        ("lime leaf", .food), ("lime fresh", .food), ("key lime", .food),
+        ("spin pizza", .food), ("bird dog", .food),
+        ("lime", .transport), ("limebike", .transport), ("bird rides", .transport),
+        ("bird app", .transport), ("veo ride", .transport), ("citi bike", .transport),
+        ("citibike", .transport), ("divvy", .transport), ("bluebikes", .transport),
+        ("bay wheels", .transport), ("scooter", .transport),
+
         // 6) Travel.
         ("delta", .travel), ("united air", .travel), ("american air", .travel),
         ("southwest", .travel), ("jetblue", .travel), ("alaska air", .travel),

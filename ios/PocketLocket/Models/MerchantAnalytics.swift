@@ -4,9 +4,20 @@ import Foundation
 /// "STARBUCKS #4521", "Starbucks 04521 Seattle WA", and "SQ *STARBUCKS" all
 /// roll up into a single merchant for frequency/trend analysis.
 enum MerchantNormalizer {
-    /// Trailing store numbers, POS prefixes, and location noise to strip so
-    /// repeat visits to the same chain are recognized as one merchant.
-    private static let posPrefixes = ["sq *", "sq*", "tst*", "tst *", "pp*", "pp *"]
+    /// Payment processors and marketplaces that put *their* name in front of a
+    /// star and the merchant you actually paid behind it, so the useful half of
+    /// "SQ *BLUE BOTTLE" is the second half.
+    ///
+    /// Any other name before a star is the merchant itself, with a
+    /// per-transaction reference behind it — see `stripStarSuffix`.
+    private static let processorPrefixes = [
+        "sq", "sqc", "tst", "pp", "paypal", "pyp", "sp", "wl", "wpy", "ebay", "stripe", "shopify",
+        // Google Payments bills on behalf of whatever you actually subscribed
+        // to — "GOOGLE *Webpass" is an ISP, "GOOGLE *YouTube" is streaming.
+        // Without this they'd all collapse into one "Google" merchant spanning
+        // three unrelated categories.
+        "google"
+    ]
 
     /// Real USPS state/territory codes only — deliberately not "any 2-letter
     /// token" so short legitimate merchant-name words aren't mistaken for a
@@ -29,6 +40,17 @@ enum MerchantNormalizer {
     private static var cache: [String: String] = [:]
 
     static func normalize(_ raw: String) -> String {
+        stripReferences(groupingKey(raw))
+    }
+
+    /// The same identity as `normalize`, but with store numbers and statement
+    /// references left on.
+    ///
+    /// `canonicalKeys` needs to see them: they are the evidence that two
+    /// descriptors differ only by a per-charge reference rather than by being
+    /// different businesses. Strip them first and "… BILLPAY 4471" / "… WEBPAY
+    /// 8832" become indistinguishable from "Whole Foods" / "Whole Earth".
+    static func groupingKey(_ raw: String) -> String {
         cacheLock.lock()
         let cached = cache[raw]
         cacheLock.unlock()
@@ -42,21 +64,169 @@ enum MerchantNormalizer {
         return result
     }
 
-    private static func computeNormalized(_ raw: String) -> String {
-        var value = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return raw }
-
-        for prefix in posPrefixes where value.hasPrefix(prefix) {
-            value.removeFirst(prefix.count)
-        }
-
-        // Drop a trailing "#1234" / "no. 1234" / bare store-number token.
-        value = value.replacingOccurrences(
+    /// Drops a trailing "#1234" / bare store-number token.
+    private static func stripReferences(_ value: String) -> String {
+        var result = value.replacingOccurrences(
             of: #"\s*#\s*\d+\s*$"#, with: "", options: .regularExpression
         )
-        value = value.replacingOccurrences(
+        result = result.replacingOccurrences(
             of: #"\s+\d{3,6}\s*$"#, with: "", options: .regularExpression
         )
+        result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.isEmpty ? value : result
+    }
+
+    /// Resolves a descriptor built around "*" down to the merchant itself.
+    ///
+    /// Acquirers put their own name first ("SQ *BLUE BOTTLE"), so the merchant
+    /// is what follows. Everyone else puts the merchant first and a
+    /// per-transaction reference after it — "LIME*1", "LIME*2", "AMZN
+    /// Mktp US*2H4KJ", "UBER *TRIP" — and that reference is different on every
+    /// single charge, which is exactly what was splitting one merchant into
+    /// dozens of one-visit entries.
+    private static func resolveStarSegments(_ value: String) -> String {
+        guard value.contains("*") else { return value }
+
+        let segments = value
+            .split(separator: "*", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let first = segments.first else { return value }
+
+        // A leading star is the processor form with the processor missing, so
+        // the merchant is still what follows it.
+        if first.isEmpty || processorPrefixes.contains(first) {
+            // Keep everything past the processor: "sq *blue bottle *2" is Blue
+            // Bottle, not "2".
+            let remainder = segments.dropFirst().joined(separator: " ")
+            let trimmed = remainder.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? value : resolveStarSegments(trimmed)
+        }
+
+        // Don't throw the descriptor away when the half in front of the star is
+        // too short to identify a merchant on its own.
+        guard first.count >= 3 else { return value }
+
+        // "UBER *EATS" is a genuinely different business from "UBER *TRIP",
+        // while "LIME*1" and "LYFT *Priority" are one business with a
+        // per-charge reference stuck on the end. Rather than keep a list of
+        // brands that have real sub-brands, ask the curated category table:
+        // keep the suffix only when brand + suffix is recognized as its own
+        // merchant in a *different* category than the brand alone.
+        let remainder = segments.dropFirst()
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        if !remainder.isEmpty {
+            let combined = "\(first) \(remainder)"
+            if let combinedCategory = MerchantHeuristics.category(for: combined),
+               combinedCategory != MerchantHeuristics.category(for: first) {
+                return combined
+            }
+        }
+        return first
+    }
+
+    /// Collapses normalized keys that are merely a longer form of the same
+    /// merchant: "Safeway 1993 Seattle" folds into "Safeway", and
+    /// "Puget Sound Energy Billpay 4471" / "… Webpay 8832" both fold into
+    /// "Puget Sound Energy".
+    ///
+    /// This is what finally strips store numbers, statement references, and
+    /// city suffixes without needing a list of city names. Extra tokens are
+    /// dropped only when either the barer name already appears in the user's
+    /// own history, or two descriptors differ solely by something that looks
+    /// like a per-charge reference — so "Whole Foods" and "Whole Earth" are
+    /// never merged into "Whole". A shared prefix is also refused whenever the
+    /// two forms carry different known categories, keeping "Uber Eats" out of
+    /// "Uber".
+    static func canonicalKeys(
+        for keys: some Sequence<String>,
+        policy: MergePolicy = .conservative
+    ) -> [String: String] {
+        // A shorter form always shares its first token with the longer one, so
+        // bucketing by that token keeps the pairwise scan below linear overall
+        // instead of quadratic across the whole ledger.
+        var buckets: [String: [(key: String, words: [String], tokens: [String])]] = [:]
+        for key in Set(keys) {
+            let words = key.split(separator: " ").map(String.init)
+            let tokens = words.map { $0.lowercased() }
+            guard let first = tokens.first else { continue }
+            buckets[first, default: []].append((key, words, tokens))
+        }
+
+        var mapping: [String: String] = [:]
+        for entries in buckets.values {
+            var candidates = entries.map { (name: $0.key, tokens: $0.tokens, derived: false) }
+
+            for i in entries.indices {
+                for j in entries.index(after: i)..<entries.endIndex {
+                    let (a, b) = (entries[i], entries[j])
+                    let shared = zip(a.tokens, b.tokens).prefix { $0 == $1 }.count
+                    guard shared > 0, shared < a.tokens.count, shared < b.tokens.count,
+                          looksLikeReference(a.tokens.dropFirst(shared)),
+                          looksLikeReference(b.tokens.dropFirst(shared)) else { continue }
+                    candidates.append((
+                        name: a.words.prefix(shared).joined(separator: " "),
+                        tokens: Array(a.tokens.prefix(shared)),
+                        derived: true
+                    ))
+                }
+            }
+
+            // Shortest first, so a key folds into the barest form available.
+            let byLength = candidates.sorted { $0.tokens.count < $1.tokens.count }
+            for entry in entries {
+                var canonical = entry.key
+                for candidate in byLength where candidate.tokens.count < entry.tokens.count {
+                    // A derived prefix only exists because the two forms differ
+                    // by a reference, so when the user is asserting the category
+                    // themselves a heuristic disagreement must not veto it —
+                    // "PUGET SOUND ENERGY BILLPAY 4471" reads as a bill payment
+                    // to the keyword table, which is exactly the guess the user
+                    // is correcting.
+                    let needsAgreement = !(candidate.derived && policy == .userAsserted)
+                    guard entry.tokens.starts(with: candidate.tokens),
+                          !needsAgreement || categoriesAgree(candidate.name, entry.key) else { continue }
+                    canonical = candidate.name
+                    break
+                }
+                mapping[entry.key] = stripReferences(canonical)
+            }
+        }
+        return mapping
+    }
+
+    /// How willing grouping is to merge two descriptor forms.
+    enum MergePolicy {
+        /// Automatic grouping: never merge forms whose known categories differ.
+        case conservative
+        /// Teaching a rule, where the user is stating the category themselves.
+        case userAsserted
+    }
+
+    /// Whether the tokens a merchant name would lose look like a per-charge or
+    /// per-statement reference rather than a different business.
+    private static func looksLikeReference(_ tokens: some Sequence<String>) -> Bool {
+        tokens.contains { $0.contains(where: \.isNumber) }
+    }
+
+    /// Two forms may only be merged when they don't resolve to *different*
+    /// known categories — "Uber Eats" must not fold into "Uber".
+    private static func categoriesAgree(_ shorter: String, _ longer: String) -> Bool {
+        guard let short = MerchantHeuristics.category(for: shorter),
+              let long = MerchantHeuristics.category(for: longer) else { return true }
+        return short == long
+    }
+
+    private static func computeNormalized(_ raw: String) -> String {
+        // Fold case *and* diacritics, matching how `MerchantHeuristics`
+        // tokenizes: without it "CAFÉ ZOE" and "CAFE ZOE" are one merchant to
+        // categorization and two merchants to the Analysis tab.
+        var value = raw
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return raw }
+
+        value = resolveStarSegments(value)
 
         // Drop trailing "city, ST" / "city ST" location suffixes — restricted
         // to real US state/territory codes (rather than any 2-letter word) so
@@ -108,7 +278,15 @@ enum MerchantAnalytics {
         let firstDate: Date
         let lastDate: Date
         let trend: Trend
+        /// Every normalized descriptor folded into this merchant, so drill-downs
+        /// can find the same transactions the stats were built from.
+        let aliases: Set<String>
         var id: String { name }
+
+        func matches(_ title: String) -> Bool {
+            aliases.contains(MerchantNormalizer.groupingKey(title))
+                || MerchantNormalizer.normalize(title) == name
+        }
     }
 
     struct CategoryMonth: Identifiable {
@@ -142,8 +320,15 @@ enum MerchantAnalytics {
         let midpoint = earliest.addingTimeInterval(latest.timeIntervalSince(earliest) / 2)
 
         var grouped: [String: [Input]] = [:]
+        var aliases: [String: Set<String>] = [:]
+        let canonical = MerchantNormalizer.canonicalKeys(
+            for: spending.map { MerchantNormalizer.groupingKey($0.title) }
+        )
         for item in spending {
-            grouped[MerchantNormalizer.normalize(item.title), default: []].append(item)
+            let grouping = MerchantNormalizer.groupingKey(item.title)
+            let key = canonical[grouping] ?? MerchantNormalizer.normalize(item.title)
+            grouped[key, default: []].append(item)
+            aliases[key, default: []].insert(grouping)
         }
 
         return grouped.map { name, items in
@@ -165,7 +350,8 @@ enum MerchantAnalytics {
                 averagePerVisit: total / Double(items.count),
                 firstDate: dates.min() ?? earliest,
                 lastDate: dates.max() ?? latest,
-                trend: trend(current: recent, previous: earlier)
+                trend: trend(current: recent, previous: earlier),
+                aliases: aliases[name] ?? [name]
             )
         }
         .sorted { $0.totalSpent > $1.totalSpent }
@@ -193,8 +379,12 @@ enum MerchantAnalytics {
     ) -> [MerchantStats] {
         let spending = spendingOnly(inputs)
         var monthsByMerchant: [String: Set<DateComponents>] = [:]
+        let canonical = MerchantNormalizer.canonicalKeys(
+            for: spending.map { MerchantNormalizer.groupingKey($0.title) }
+        )
         for item in spending {
-            let key = MerchantNormalizer.normalize(item.title)
+            let grouping = MerchantNormalizer.groupingKey(item.title)
+            let key = canonical[grouping] ?? MerchantNormalizer.normalize(item.title)
             let comps = calendar.dateComponents([.year, .month], from: item.date)
             monthsByMerchant[key, default: []].insert(comps)
         }

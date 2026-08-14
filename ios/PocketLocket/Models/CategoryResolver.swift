@@ -127,10 +127,47 @@ enum CategoryAssignment {
         case allMatching
     }
 
-    static func matchKey(for transaction: TransactionRecord) -> String {
+    /// The text a taught rule matches on.
+    ///
+    /// This is deliberately the same merchant identity the Analysis tab groups
+    /// by: without it, whether "always categorize" reached the whole merchant
+    /// depended on which transaction you happened to tap — tapping
+    /// "Safeway #1993" taught `safeway` and caught everything, while tapping
+    /// "SAFEWAY 1993 SEATTLE WA" taught the whole descriptor and caught only
+    /// itself. Passing the ledger lets store numbers, statement references and
+    /// city suffixes fold away, so a utility that renames itself every month
+    /// still lands under one rule.
+    static func matchKey(for transaction: TransactionRecord, in ledger: [TransactionRecord] = []) -> String {
         let descriptor = transaction.merchantName ?? transaction.name
-        let cleaned = MerchantHeuristics.ruleMatchText(for: descriptor)
+        let normalized = MerchantNormalizer.normalize(descriptor)
+        if !ledger.isEmpty {
+            let canonical = MerchantNormalizer.canonicalKeys(
+                for: ledger.map { MerchantNormalizer.groupingKey($0.merchantName ?? $0.name) },
+                policy: .userAsserted
+            )
+            if let name = canonical[MerchantNormalizer.groupingKey(descriptor)],
+               !isTooBroad(name, among: canonical.values) {
+                let cleaned = MerchantHeuristics.ruleMatchText(for: name)
+                return (cleaned.isEmpty ? name : cleaned).lowercased()
+            }
+            // The merchant identity is a prefix of another merchant in the
+            // ledger, so a rule keyed on it would silently swallow that one
+            // too. Stay with the descriptor, which is specific enough.
+            let cleaned = MerchantHeuristics.ruleMatchText(for: descriptor)
+            if !cleaned.isEmpty { return cleaned.lowercased() }
+        }
+        let cleaned = MerchantHeuristics.ruleMatchText(for: normalized)
         return (cleaned.isEmpty ? descriptor : cleaned).lowercased()
+    }
+
+    /// Whether a rule keyed on `name` would also match a different merchant
+    /// that happens to start with it — "Uber" would catch every "Uber Eats".
+    private static func isTooBroad(_ name: String, among names: some Sequence<String>) -> Bool {
+        let tokens = MerchantHeuristics.tokens(in: name)
+        return names.contains { other in
+            let otherTokens = MerchantHeuristics.tokens(in: other)
+            return otherTokens.count > tokens.count && otherTokens.starts(with: tokens)
+        }
     }
 
     static func assign(
@@ -138,7 +175,8 @@ enum CategoryAssignment {
         to transactions: [TransactionRecord],
         using rules: [CategoryRule],
         in context: ModelContext,
-        scope: Scope = .allMatching
+        scope: Scope = .allMatching,
+        ledger: [TransactionRecord] = []
     ) throws {
         guard scope == .allMatching else {
             for transaction in transactions {
@@ -156,7 +194,7 @@ enum CategoryAssignment {
             // A stale per-transaction override would outrank the rule being
             // taught here, so the choice would appear not to take effect.
             transaction.categoryOverride = nil
-            let key = matchKey(for: transaction)
+            let key = matchKey(for: transaction, in: ledger)
             if let existing = rulesByKey[key] {
                 existing.categoryRaw = category.rawValue
             } else {

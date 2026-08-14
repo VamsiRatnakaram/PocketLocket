@@ -201,7 +201,10 @@ enum BackupService {
         }
 
         for r in payload.rules {
-            let key = r.matchText
+            // CategoryRule lowercases matchText on the way in, so comparing
+            // the backup's raw text would miss an existing rule and insert a
+            // duplicate of a unique attribute.
+            let key = r.matchText.lowercased()
             let exists = ((try? context.fetch(
                 FetchDescriptor<CategoryRule>(predicate: #Predicate { $0.matchText == key })
             ))?.first) != nil
