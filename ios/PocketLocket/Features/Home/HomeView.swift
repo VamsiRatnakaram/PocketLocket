@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var monthOffset = 0
     @State private var scope: Scope = .month
     @State private var selectedCategory: SpendCategory?
+    @State private var summaryCache = DerivedCache<MonthKey, MonthSummary>()
 
     enum Scope: Hashable { case month, year }
 
@@ -54,18 +55,55 @@ struct HomeView: View {
         SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
     }
 
-    /// Only the selected month's transactions from included accounts feed the ring.
-    private var monthTransactions: [TransactionRecord] {
-        transactions.filter {
-            monthInterval.contains($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excludedAccountIds)
-        }
+    /// Everything the month view derives from the ledger, computed in one pass.
+    ///
+    /// `items` carries each transaction's resolved category, so Safe-to-spend
+    /// can reuse it instead of resolving the month a second time.
+    private struct MonthSummary {
+        let items: [SpendItem]
+        let viewModel: HomeViewModel
     }
 
-    private var viewModel: HomeViewModel {
-        HomeViewModel(
-            items: monthTransactions.map { SpendItem(category: $0.resolvedCategory(using: rules), amount: $0.amount) },
+    private struct MonthKey: Equatable {
+        var dataHash: Int
+        var rulesHash: Int
+        var monthStart: Date
+        var excludedAccountsRaw: String
+        var monthlyBudget: Double
+    }
+
+    /// The month's totals, rebuilt only when the ledger, the rules, the
+    /// selected month, the account filter or the budget actually change.
+    ///
+    /// `body` reaches for this a dozen times — the ring, the breakdown list,
+    /// the remaining/over-budget label, Safe-to-spend — and as a plain computed
+    /// property each of those re-filtered every transaction on file, resolved a
+    /// category for each survivor, and re-ran both aggregation passes.
+    private var summary: MonthSummary {
+        // Narrow to the month with cheap scalar comparisons *before* hashing.
+        // Home only ever shows one month, so hashing the entire ledger to key
+        // the cache would cost more than the work it protects.
+        let excluded = excludedAccountIds
+        let monthTransactions = transactions.filter {
+            monthInterval.contains($0.date)
+                && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
+        }
+        let key = MonthKey(
+            dataHash: RecordHash.transactions(monthTransactions),
+            rulesHash: RecordHash.rules(rules),
+            monthStart: monthInterval.start,
+            excludedAccountsRaw: excludedAccountsRaw,
             monthlyBudget: monthlyBudget
         )
+        return summaryCache.value(for: key) {
+            let items = monthTransactions.map {
+                SpendItem(category: $0.resolvedCategory(using: rules), amount: $0.amount)
+            }
+            return MonthSummary(
+                items: items,
+                viewModel: HomeViewModel(items: items, monthlyBudget: monthlyBudget)
+            )
+        }
     }
 
     var body: some View {
@@ -79,7 +117,7 @@ struct HomeView: View {
                 .padding([.horizontal, .top])
 
                 switch scope {
-                case .month: monthContent
+                case .month: monthContent(summary)
                 case .year: YearOverviewView { year, monthIndex in
                     showMonth(year: year, monthIndex: monthIndex)
                 }
@@ -112,13 +150,15 @@ struct HomeView: View {
         }
     }
 
-    private var monthContent: some View {
+    private func monthContent(_ summary: MonthSummary) -> some View {
+        let viewModel = summary.viewModel
+        return
         ScrollView {
             VStack(spacing: 28) {
                 monthSwitcher
-                ringSection
+                ringSection(viewModel)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: monthOffset)
-                remainingLabel
+                remainingLabel(summary)
 
                 if viewModel.spends.isEmpty {
                     emptyState
@@ -139,7 +179,7 @@ struct HomeView: View {
     // MARK: - Sections
 
     @ViewBuilder
-    private var ringSection: some View {
+    private func ringSection(_ viewModel: HomeViewModel) -> some View {
         switch ringStyle {
         case .donut:
             SpendRingView(
@@ -163,35 +203,40 @@ struct HomeView: View {
 
     /// Budget basis, spent, and a label for Safe-to-spend: category-focused when
     /// categories are starred and budgeted, otherwise the overall monthly budget.
-    private var safeToSpendBasis: (budget: Double, spent: Double, label: String)? {
+    private func safeToSpendBasis(_ summary: MonthSummary) -> (budget: Double, spent: Double, label: String)? {
         let budgets = CategoryBudgetStore.decode(categoryBudgetsRaw)
         let focus = SafeToSpendFocus.categories(from: safeToSpendFocusRaw).filter { budgets[$0] != nil }
         if !focus.isEmpty {
             let budget = focus.reduce(0) { $0 + (budgets[$1] ?? 0) }
-            let spent = monthTransactions
-                .filter { $0.amount > 0 && focus.contains($0.resolvedCategory(using: rules)) }
+            // Reuses the categories resolved for the summary rather than
+            // resolving the whole month again.
+            let spent = summary.items
+                .filter { $0.amount > 0 && focus.contains($0.category) }
                 .reduce(0) { $0 + $1.amount }
             let names = focus.map(\.displayName).sorted().joined(separator: ", ")
             return (budget, spent, names)
         } else if monthlyBudget > 0 {
-            return (monthlyBudget, viewModel.totalSpent, "")
+            return (monthlyBudget, summary.viewModel.totalSpent, "")
         }
         return nil
     }
 
-    private var safeToSpend: Double {
-        guard let basis = safeToSpendBasis else { return 0 }
+    private func safeToSpend(_ basis: (budget: Double, spent: Double, label: String)?) -> Double {
+        guard let basis else { return 0 }
         return max(0, basis.budget - basis.spent) / Double(daysLeftInMonth)
     }
 
-    private var safeToSpendLabel: String {
-        if let basis = safeToSpendBasis, !basis.label.isEmpty {
-            return "\(basis.label): \(CurrencyFormatter.string(safeToSpend))/day"
+    private func safeToSpendLabel(_ basis: (budget: Double, spent: Double, label: String)?) -> String {
+        let amount = CurrencyFormatter.string(safeToSpend(basis))
+        if let basis, !basis.label.isEmpty {
+            return "\(basis.label): \(amount)/day"
         }
-        return "Safe to spend today: \(CurrencyFormatter.string(safeToSpend))"
+        return "Safe to spend today: \(amount)"
     }
 
-    private var remainingLabel: some View {
+    private func remainingLabel(_ summary: MonthSummary) -> some View {
+        let viewModel = summary.viewModel
+        return
         VStack(spacing: 4) {
             if viewModel.isOverBudget {
                 Text("\(CurrencyFormatter.string(-viewModel.remaining)) over budget")
@@ -201,7 +246,7 @@ struct HomeView: View {
                 Text("\(CurrencyFormatter.string(viewModel.remaining)) left this month")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
-                Text(safeToSpendLabel)
+                Text(safeToSpendLabel(safeToSpendBasis(summary)))
                     .font(.caption)
                     .foregroundStyle(.tint)
             } else {
