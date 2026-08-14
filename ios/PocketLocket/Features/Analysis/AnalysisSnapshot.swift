@@ -26,7 +26,10 @@ struct AnalysisSnapshot: Sendable {
         let allStats = MerchantAnalytics.merchantStats(inputs)
         guard !allStats.isEmpty else { return AnalysisSnapshot() }
 
-        let present = Set(inputs.filter { $0.category.isSpending }.map(\.category))
+        // Positive amounts only, matching what every section below counts —
+        // otherwise a category with nothing but refunds offers a chip that
+        // filters to an empty screen.
+        let present = Set(inputs.filter { $0.category.isSpending && $0.amount > 0 }.map(\.category))
         let available = SpendCategory.allCases.filter { present.contains($0) }
 
         let filteredInputs: [MerchantAnalytics.Input]
@@ -72,6 +75,14 @@ final class AnalysisSnapshotCache {
         var rulesHash: Int
         var excludedAccountsRaw: String
         var range: AnalysisTimeRange
+        /// The resolved start of the window, truncated to a day.
+        ///
+        /// The relative ranges measure back from *now*, so `range` alone does
+        /// not identify the data they select: leave the app open across
+        /// midnight and "last 3 months" quietly covers a different span while
+        /// the key claims nothing changed. Truncating to a day makes this
+        /// stable within a render pass instead of changing every tick.
+        var windowStart: Date?
     }
 
     private var inputsKey: InputsKey?
@@ -92,7 +103,11 @@ final class AnalysisSnapshotCache {
             hasher.combine(txn.id)
             hasher.combine(txn.amount)
             hasher.combine(txn.date)
-            hasher.combine(txn.title)
+            // Both, not `title`: `title` collapses to `merchantName` when one
+            // is set, hiding edits to `name` — and categorization matches
+            // against both.
+            hasher.combine(txn.name)
+            hasher.combine(txn.merchantName)
             hasher.combine(txn.categoryPrimary)
             hasher.combine(txn.accountId)
         }

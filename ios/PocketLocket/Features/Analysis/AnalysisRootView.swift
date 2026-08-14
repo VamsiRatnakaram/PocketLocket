@@ -10,17 +10,24 @@ struct AnalysisRootView: View {
     @State private var segment: Segment = .analysis
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("View", selection: $segment) {
-                Text("Analysis").tag(Segment.analysis)
-                Text("Save").tag(Segment.save)
-            }
-            .pickerStyle(.segmented)
-            .padding([.horizontal, .top])
+        // The stack lives here rather than in each child so the segmented
+        // picker is part of the *root* screen. It used to sit outside the
+        // children's own stacks, which pinned it above every pushed
+        // drill-down -- offering to switch to Save from inside a category
+        // detail, and stealing a row of height from every pushed screen.
+        NavigationStack {
+            VStack(spacing: 0) {
+                Picker("View", selection: $segment) {
+                    Text("Analysis").tag(Segment.analysis)
+                    Text("Save").tag(Segment.save)
+                }
+                .pickerStyle(.segmented)
+                .padding([.horizontal, .top])
 
-            switch segment {
-            case .analysis: AnalysisView()
-            case .save: SuggestionsView()
+                switch segment {
+                case .analysis: AnalysisView()
+                case .save: SuggestionsView()
+                }
             }
         }
     }

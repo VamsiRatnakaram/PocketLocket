@@ -47,9 +47,15 @@ struct AnalysisView: View {
         return options
     }
 
+    /// Start of the selected window, truncated to a day so it is stable within
+    /// a render pass and can safely take part in the cache key.
+    private var windowStart: Date? {
+        range.cutoff().map { Calendar.current.startOfDay(for: $0) }
+    }
+
     private var scoped: [TransactionRecord] {
         let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
-        let cutoff = range.cutoff()
+        let cutoff = windowStart
         return transactions.filter { txn in
             SpendingAccountFilter.isIncluded(txn.accountId, excluded: excluded)
                 && (cutoff == nil || txn.date >= cutoff!)
@@ -71,7 +77,8 @@ struct AnalysisView: View {
                 dataHash: AnalysisSnapshotCache.dataHash(transactions),
                 rulesHash: AnalysisSnapshotCache.rulesHash(rules),
                 excludedAccountsRaw: excludedAccountsRaw,
-                range: range
+                range: range,
+                windowStart: windowStart
             ),
             categoryFilter: categoryFilter
         )
@@ -90,8 +97,7 @@ struct AnalysisView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
+        Group {
                 if let snapshot = coordinator.snapshot {
                     if snapshot.isEmpty {
                         ContentUnavailableView {
@@ -133,7 +139,6 @@ struct AnalysisView: View {
             .navigationDestination(item: $selectedCategory) { category in
                 AnalysisCategoryDetailView(category: category, transactions: scoped, rules: rules)
             }
-        }
     }
 
     private var rangePicker: some View {

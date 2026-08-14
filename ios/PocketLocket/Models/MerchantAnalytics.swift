@@ -224,24 +224,30 @@ enum MerchantAnalytics {
         let monthly = categoryMonthlyTotals(inputs, calendar: calendar)
         guard !monthly.isEmpty else { return [] }
 
-        var byCategory: [SpendCategory: [CategoryMonth]] = [:]
-        for entry in monthly { byCategory[entry.category, default: []].append(entry) }
+        // Every month the window actually covers, not just the months a given
+        // category appeared in. Dividing a category's total by its *present*
+        // months reported a single $120 charge in a year as "$120/mo", and
+        // left a category that stopped entirely looking flat instead of down.
+        let windowMonths = Set(monthly.map(\.monthStart)).sorted()
 
-        return byCategory.map { category, entries in
-            let sorted = entries.sorted { $0.monthStart < $1.monthStart }
-            let total = sorted.reduce(0) { $0 + $1.amount }
-            let average = total / Double(sorted.count)
+        var byCategory: [SpendCategory: [Date: Double]] = [:]
+        for entry in monthly { byCategory[entry.category, default: [:]][entry.monthStart] = entry.amount }
 
-            let midIndex = sorted.count / 2
-            let earlierHalf = Array(sorted.prefix(midIndex))
-            let recentHalf = Array(sorted.suffix(sorted.count - midIndex))
-            let earlierAvg = earlierHalf.isEmpty ? 0 : earlierHalf.reduce(0) { $0 + $1.amount } / Double(earlierHalf.count)
-            let recentAvg = recentHalf.isEmpty ? 0 : recentHalf.reduce(0) { $0 + $1.amount } / Double(recentHalf.count)
+        return byCategory.map { category, amounts in
+            let series = windowMonths.map { amounts[$0] ?? 0 }
+            let total = series.reduce(0, +)
+            let average = total / Double(series.count)
+
+            let midIndex = series.count / 2
+            let earlierHalf = Array(series.prefix(midIndex))
+            let recentHalf = Array(series.suffix(series.count - midIndex))
+            let earlierAvg = earlierHalf.isEmpty ? 0 : earlierHalf.reduce(0, +) / Double(earlierHalf.count)
+            let recentAvg = recentHalf.isEmpty ? 0 : recentHalf.reduce(0, +) / Double(recentHalf.count)
 
             return CategoryAverage(
                 category: category,
                 averagePerMonth: average,
-                trend: sorted.count >= 2 ? trend(current: recentAvg, previous: earlierAvg) : .flat
+                trend: series.count >= 2 ? trend(current: recentAvg, previous: earlierAvg) : .flat
             )
         }
         .sorted { $0.averagePerMonth > $1.averagePerMonth }

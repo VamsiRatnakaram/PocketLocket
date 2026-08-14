@@ -75,8 +75,7 @@ struct SuggestionsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
+        ScrollView {
                 if questionTransactions.isEmpty {
                     ContentUnavailableView(
                         "No suggestions yet",
@@ -109,7 +108,6 @@ struct SuggestionsView: View {
                     }
                 }
             }
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if questionFocused {
                 HStack {

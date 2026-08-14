@@ -139,4 +139,27 @@ final class MerchantAnalyticsTests: XCTestCase {
     func testCategoryAveragesEmptyForNoData() {
         XCTAssertTrue(MerchantAnalytics.categoryAverages([]).isEmpty)
     }
+
+    /// A category is averaged over every month the window covers, not just the
+    /// months it appeared in. One $120 charge across a three-month window used
+    /// to be reported as "$120/mo".
+    func testCategoryAveragesDivideByWindowNotByMonthsPresent() {
+        let calendar = Calendar(identifier: .gregorian)
+        func month(_ index: Int) -> Date {
+            calendar.date(from: DateComponents(year: 2025, month: index, day: 10))!
+        }
+        let inputs = [
+            MerchantAnalytics.Input(title: "Gym", amount: 120, category: .health, date: month(1)),
+            MerchantAnalytics.Input(title: "Cafe", amount: 10, category: .food, date: month(1)),
+            MerchantAnalytics.Input(title: "Cafe", amount: 10, category: .food, date: month(2)),
+            MerchantAnalytics.Input(title: "Cafe", amount: 10, category: .food, date: month(3)),
+        ]
+
+        let averages = MerchantAnalytics.categoryAverages(inputs, calendar: calendar)
+        let health = try? XCTUnwrap(averages.first { $0.category == .health })
+        XCTAssertEqual(health?.averagePerMonth ?? 0, 40, accuracy: 0.001)
+
+        let food = try? XCTUnwrap(averages.first { $0.category == .food })
+        XCTAssertEqual(food?.averagePerMonth ?? 0, 10, accuracy: 0.001)
+    }
 }
