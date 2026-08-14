@@ -18,6 +18,33 @@ final class MerchantAnalyticsTests: XCTestCase {
         XCTAssertEqual(MerchantNormalizer.normalize("SQ *Blue Bottle Coffee"), "Blue Bottle Coffee")
     }
 
+    /// The reference behind the star is different on every charge, so without
+    /// this one merchant showed up as dozens of one-visit entries.
+    func testNormalizerDropsPerTransactionReferenceAfterStar() {
+        XCTAssertEqual(MerchantNormalizer.normalize("LIME*1"), "Lime")
+        XCTAssertEqual(MerchantNormalizer.normalize("LIME*2"), "Lime")
+        XCTAssertEqual(MerchantNormalizer.normalize("Lime"), "Lime")
+        XCTAssertEqual(MerchantNormalizer.normalize("LIME *RIDE"), "Lime")
+        XCTAssertEqual(MerchantNormalizer.normalize("AMZN Mktp US*2H4KJ"), "Amzn Mktp Us")
+        XCTAssertEqual(MerchantNormalizer.normalize("UBER *TRIP"), "Uber")
+    }
+
+    /// A processor puts its own name first, so there the merchant is the
+    /// *second* half — the opposite of every other star descriptor.
+    func testNormalizerKeepsMerchantAfterProcessorPrefix() {
+        XCTAssertEqual(MerchantNormalizer.normalize("SQ *Blue Bottle Coffee"), "Blue Bottle Coffee")
+        XCTAssertEqual(MerchantNormalizer.normalize("PAYPAL *STEAM GAMES"), "Steam Games")
+        XCTAssertEqual(MerchantNormalizer.normalize("TST* Little Star Pizza"), "Little Star Pizza")
+    }
+
+    func testNormalizerHandlesUnusableMerchantHalf() {
+        // A leading star is the processor form with the processor missing.
+        XCTAssertEqual(MerchantNormalizer.normalize("*Lime Ride"), "Lime Ride")
+        // Too short in front of the star to identify a merchant, so keep the
+        // descriptor rather than reducing it to two letters.
+        XCTAssertEqual(MerchantNormalizer.normalize("XY*Some Merchant"), "Xy*some Merchant")
+    }
+
     func testNormalizerStripsTrailingState() {
         XCTAssertEqual(MerchantNormalizer.normalize("Trader Joes CA"), "Trader Joes")
     }

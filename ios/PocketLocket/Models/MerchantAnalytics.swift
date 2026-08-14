@@ -4,9 +4,15 @@ import Foundation
 /// "STARBUCKS #4521", "Starbucks 04521 Seattle WA", and "SQ *STARBUCKS" all
 /// roll up into a single merchant for frequency/trend analysis.
 enum MerchantNormalizer {
-    /// Trailing store numbers, POS prefixes, and location noise to strip so
-    /// repeat visits to the same chain are recognized as one merchant.
-    private static let posPrefixes = ["sq *", "sq*", "tst*", "tst *", "pp*", "pp *"]
+    /// Payment processors and marketplaces that put *their* name in front of a
+    /// star and the merchant you actually paid behind it, so the useful half of
+    /// "SQ *BLUE BOTTLE" is the second half.
+    ///
+    /// Any other name before a star is the merchant itself, with a
+    /// per-transaction reference behind it — see `stripStarSuffix`.
+    private static let processorPrefixes = [
+        "sq", "sqc", "tst", "pp", "paypal", "pyp", "sp", "wl", "wpy", "ebay", "stripe", "shopify"
+    ]
 
     /// Real USPS state/territory codes only — deliberately not "any 2-letter
     /// token" so short legitimate merchant-name words aren't mistaken for a
@@ -42,13 +48,43 @@ enum MerchantNormalizer {
         return result
     }
 
+    /// Resolves a descriptor built around "*" down to the merchant itself.
+    ///
+    /// Acquirers put their own name first ("SQ *BLUE BOTTLE"), so the merchant
+    /// is what follows. Everyone else puts the merchant first and a
+    /// per-transaction reference after it — "LIME*1", "LIME*2", "AMZN
+    /// Mktp US*2H4KJ", "UBER *TRIP" — and that reference is different on every
+    /// single charge, which is exactly what was splitting one merchant into
+    /// dozens of one-visit entries.
+    private static func resolveStarSegments(_ value: String) -> String {
+        guard value.contains("*") else { return value }
+
+        let segments = value
+            .split(separator: "*", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let first = segments.first else { return value }
+
+        // A leading star is the processor form with the processor missing, so
+        // the merchant is still what follows it.
+        if first.isEmpty || processorPrefixes.contains(first) {
+            // Keep everything past the processor: "sq *blue bottle *2" is Blue
+            // Bottle, not "2".
+            let remainder = segments.dropFirst().joined(separator: " ")
+            let trimmed = remainder.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? value : resolveStarSegments(trimmed)
+        }
+
+        // Don't throw the descriptor away when the half in front of the star is
+        // too short to identify a merchant on its own.
+        guard first.count >= 3 else { return value }
+        return first
+    }
+
     private static func computeNormalized(_ raw: String) -> String {
         var value = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return raw }
 
-        for prefix in posPrefixes where value.hasPrefix(prefix) {
-            value.removeFirst(prefix.count)
-        }
+        value = resolveStarSegments(value)
 
         // Drop a trailing "#1234" / "no. 1234" / bare store-number token.
         value = value.replacingOccurrences(

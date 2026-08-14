@@ -67,6 +67,16 @@ enum MerchantHeuristics {
         ("audible", .entertainment),
 
         // 5) Transport / fuel / auto.
+        // Shared scooters and bikes. "lime" and "spin" are also ordinary
+        // words, so the restaurant names that contain them are listed first —
+        // the table is first-match-wins over contiguous tokens.
+        ("lime leaf", .food), ("lime fresh", .food), ("key lime", .food),
+        ("spin pizza", .food), ("bird dog", .food),
+        ("lime", .transport), ("limebike", .transport), ("bird rides", .transport),
+        ("bird app", .transport), ("veo ride", .transport), ("citi bike", .transport),
+        ("citibike", .transport), ("divvy", .transport), ("bluebikes", .transport),
+        ("bay wheels", .transport), ("scooter", .transport),
+
         ("uber", .transport), ("lyft", .transport), ("waymo", .transport), ("shell", .transport),
         ("chevron", .transport), ("exxon", .transport), ("arco", .transport), ("valero", .transport),
         ("sunoco", .transport), ("speedway", .transport), ("circle k", .transport),
