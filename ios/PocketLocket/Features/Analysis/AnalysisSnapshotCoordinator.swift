@@ -67,26 +67,38 @@ actor AnalysisComputeEngine {
     /// for tests.
     private(set) var missCount = 0
 
-    func snapshot(for request: AnalysisComputeRequest) -> AnalysisSnapshot {
+    /// Returns nil if the calling task was cancelled partway through.
+    ///
+    /// The actor runs one request at a time, so work nobody will ever look at
+    /// still made the newest request wait for it. Checking cancellation inside
+    /// the loop lets a superseded pass release the actor early.
+    func snapshot(for request: AnalysisComputeRequest) -> AnalysisSnapshot? {
         cache.snapshot(key: request.key, categoryFilter: request.categoryFilter) {
             self.missCount += 1
             // Category resolution is the expensive half (token matching against
             // the rule index plus the heuristics table), so it happens here,
             // off the main thread, rather than during extraction.
             let index = CategoryRuleIndex(specs: request.rules)
-            return request.transactions.map { txn in
-                MerchantAnalytics.Input(
-                    title: txn.title,
-                    amount: txn.amount,
-                    category: CategoryResolver.resolve(
-                        name: txn.name,
-                        merchant: txn.merchantName,
-                        plaidPrimary: txn.categoryPrimary,
-                        index: index
-                    ),
-                    date: txn.date
+            var inputs: [MerchantAnalytics.Input] = []
+            inputs.reserveCapacity(request.transactions.count)
+            for (offset, txn) in request.transactions.enumerated() {
+                // Batched so the check itself doesn't show up in the profile.
+                if offset % 256 == 0, Task.isCancelled { return nil }
+                inputs.append(
+                    MerchantAnalytics.Input(
+                        title: txn.title,
+                        amount: txn.amount,
+                        category: CategoryResolver.resolve(
+                            name: txn.name,
+                            merchant: txn.merchantName,
+                            plaidPrimary: txn.categoryPrimary,
+                            index: index
+                        ),
+                        date: txn.date
+                    )
                 )
             }
+            return inputs
         }
     }
 }
@@ -125,7 +137,8 @@ final class AnalysisSnapshotCoordinator {
         var categoryFilter: SpendCategory?
     }
 
-    typealias Compute = @Sendable (AnalysisComputeRequest) async -> AnalysisSnapshot
+    /// Returns nil when the pass was superseded partway through.
+    typealias Compute = @Sendable (AnalysisComputeRequest) async -> AnalysisSnapshot?
 
     /// Shared because `AnalysisView` is destroyed and recreated by the
     /// Analysis/Save segmented picker; keeping the last result here means
@@ -201,7 +214,7 @@ final class AnalysisSnapshotCoordinator {
             }
             guard !Task.isCancelled else { return }
             self.beginComputing()
-            let result = await self.compute(computeRequest)
+            guard let result = await self.compute(computeRequest) else { return }
             guard !Task.isCancelled else { return }
             self.apply(result, for: request)
         }

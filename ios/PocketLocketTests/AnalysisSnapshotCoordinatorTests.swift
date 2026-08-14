@@ -159,7 +159,7 @@ final class AnalysisSnapshotCoordinatorTests: XCTestCase {
 
     // MARK: - Background engine
 
-    func testEngineResolvesCategoriesFromPlainRuleSpecs() async {
+    func testEngineResolvesCategoriesFromPlainRuleSpecs() async throws {
         let engine = AnalysisComputeEngine()
         let request = AnalysisComputeRequest(
             key: key(7),
@@ -171,14 +171,15 @@ final class AnalysisSnapshotCoordinatorTests: XCTestCase {
             rules: [CategoryRuleSpec(matchText: "acme widgets", category: .groceries)]
         )
 
-        let snapshot = await engine.snapshot(for: request)
+        let computed = await engine.snapshot(for: request)
+        let snapshot = try XCTUnwrap(computed)
         XCTAssertEqual(snapshot.topBySpend.first?.category, .groceries)
         XCTAssertEqual(snapshot.availableCategories, [.groceries])
     }
 
     /// The engine memoizes resolved inputs separately from the snapshot, so
     /// changing only the category filter must not re-resolve categories.
-    func testEngineReusesResolvedInputsAcrossFilterChanges() async {
+    func testEngineReusesResolvedInputsAcrossFilterChanges() async throws {
         let engine = AnalysisComputeEngine()
         let base = AnalysisComputeRequest(
             key: key(11),
@@ -190,7 +191,8 @@ final class AnalysisSnapshotCoordinatorTests: XCTestCase {
         _ = await engine.snapshot(for: base)
         var filtered = base
         filtered.categoryFilter = .groceries
-        let result = await engine.snapshot(for: filtered)
+        let computed = await engine.snapshot(for: filtered)
+        let result = try XCTUnwrap(computed)
         let misses = await engine.missCount
 
         XCTAssertEqual(misses, 1, "a filter change must reuse resolved inputs")

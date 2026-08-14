@@ -129,10 +129,14 @@ final class AnalysisSnapshotCache {
     func snapshot(
         key: InputsKey,
         categoryFilter: SpendCategory?,
-        buildInputs: () -> [MerchantAnalytics.Input]
-    ) -> AnalysisSnapshot {
+        buildInputs: () -> [MerchantAnalytics.Input]?
+    ) -> AnalysisSnapshot? {
         if inputsKey != key {
-            inputs = buildInputs()
+            // `buildInputs` returns nil when it bailed out early because the
+            // request was superseded. Memoizing a half-built pass would pin a
+            // wrong snapshot under a key that claims to be complete.
+            guard let built = buildInputs() else { return nil }
+            inputs = built
             inputsKey = key
             hasSnapshot = false
         }

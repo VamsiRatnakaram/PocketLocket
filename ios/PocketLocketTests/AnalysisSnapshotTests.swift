@@ -74,7 +74,7 @@ final class AnalysisSnapshotTests: XCTestCase {
         let cache = AnalysisSnapshotCache()
         var builds = 0
         let key = AnalysisSnapshotCache.InputsKey(dataHash: 1, rulesHash: 1, excludedAccountsRaw: "", range: .all)
-        let build: () -> [MerchantAnalytics.Input] = { builds += 1; return self.sample }
+        let build: () -> [MerchantAnalytics.Input]? = { builds += 1; return self.sample }
 
         _ = cache.snapshot(key: key, categoryFilter: nil, buildInputs: build)
         _ = cache.snapshot(key: key, categoryFilter: nil, buildInputs: build)
@@ -91,14 +91,14 @@ final class AnalysisSnapshotTests: XCTestCase {
         XCTAssertEqual(builds, 3, "a rule change must invalidate the cache")
     }
 
-    func testCacheRecomputesSnapshotWhenFilterChanges() {
+    func testCacheRecomputesSnapshotWhenFilterChanges() throws {
         let cache = AnalysisSnapshotCache()
         var builds = 0
         let key = AnalysisSnapshotCache.InputsKey(dataHash: 1, rulesHash: 1, excludedAccountsRaw: "", range: .all)
-        let build: () -> [MerchantAnalytics.Input] = { builds += 1; return self.sample }
+        let build: () -> [MerchantAnalytics.Input]? = { builds += 1; return self.sample }
 
-        let all = cache.snapshot(key: key, categoryFilter: nil, buildInputs: build)
-        let groceries = cache.snapshot(key: key, categoryFilter: .groceries, buildInputs: build)
+        let all = try XCTUnwrap(cache.snapshot(key: key, categoryFilter: nil, buildInputs: build))
+        let groceries = try XCTUnwrap(cache.snapshot(key: key, categoryFilter: .groceries, buildInputs: build))
 
         XCTAssertEqual(builds, 1, "filter changes reuse resolved inputs")
         XCTAssertNotEqual(all.topBySpend.count, groceries.topBySpend.count)
@@ -110,5 +110,22 @@ final class AnalysisSnapshotTests: XCTestCase {
         let second = MerchantNormalizer.normalize("SQ *Blue Bottle Coffee #12")
         XCTAssertEqual(first, second)
         XCTAssertEqual(first, "Blue Bottle Coffee")
+    }
+
+    /// A superseded pass bails out partway through. Memoizing what it had
+    /// built so far would pin a wrong snapshot under a key that claims to be
+    /// complete, and every later request would be served from it.
+    func testCancelledBuildIsNotMemoized() throws {
+        let cache = AnalysisSnapshotCache()
+        let key = AnalysisSnapshotCache.InputsKey(dataHash: 1, rulesHash: 1, excludedAccountsRaw: "", range: .all)
+
+        XCTAssertNil(cache.snapshot(key: key, categoryFilter: nil) { nil })
+
+        var builds = 0
+        let complete = try XCTUnwrap(
+            cache.snapshot(key: key, categoryFilter: nil) { builds += 1; return self.sample }
+        )
+        XCTAssertEqual(builds, 1, "the cancelled pass must not have satisfied this key")
+        XCTAssertFalse(complete.topBySpend.isEmpty)
     }
 }
