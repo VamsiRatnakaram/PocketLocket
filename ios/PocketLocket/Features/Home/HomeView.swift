@@ -71,13 +71,6 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("View", selection: $scope) {
-                    Text("Month").tag(Scope.month)
-                    Text("Year").tag(Scope.year)
-                }
-                .pickerStyle(.segmented)
-                .padding([.horizontal, .top])
-
                 switch scope {
                 case .month: monthContent
                 case .year: YearOverviewView { year, monthIndex in
@@ -236,6 +229,24 @@ struct HomeView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            Menu {
+                Picker("View", selection: $scope) {
+                    Text("Month").tag(Scope.month)
+                    Text("Year").tag(Scope.year)
+                }
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(scope == .month ? "Month" : "Year")
+                        .font(.headline)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                }
+                .foregroundStyle(.primary)
+            }
+            .accessibilityLabel("Change view")
+        }
         ToolbarItem(placement: .topBarLeading) {
             Menu {
                 Picker("Ring style", selection: $ringStyleRaw) {
@@ -243,6 +254,7 @@ struct HomeView: View {
                         Label(style.label, systemImage: style.symbol).tag(style.rawValue)
                     }
                 }
+                .pickerStyle(.inline)
             } label: {
                 Image(systemName: "circle.dashed")
             }
