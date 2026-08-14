@@ -98,25 +98,41 @@ struct TransactionDetailView: View {
     /// behavior, which is what makes the app learn.
     private var scopePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Segment labels stay short and fixed. Interpolating the merchant
+            // name here overflowed the segment -- descriptors are routinely
+            // long ("SQ *BLUE BOTTLE COFFEE SAN FRANCISCO CA"), and a
+            // segmented control can't wrap or scroll. The name lives in the
+            // caption below instead, which wraps to as many lines as it needs.
             Picker("Apply to", selection: $scope) {
                 Text("Just this one").tag(CategoryAssignment.Scope.thisTransactionOnly)
-                Text("All “\(matchKey)”").tag(CategoryAssignment.Scope.allMatching)
+                Text("All like this").tag(CategoryAssignment.Scope.allMatching)
             }
             .pickerStyle(.segmented)
 
             Text(scopeExplanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var scopeExplanation: String {
         switch scope {
         case .thisTransactionOnly:
-            return "Only this transaction changes. Everything else from “\(matchKey)” is left alone."
+            return "Only this transaction changes. Everything else from “\(matchKeyDisplay)” is left alone."
         case .allMatching:
-            return "Teaches the app to auto-categorize “\(matchKey)” this way from now on, including future transactions."
+            return "Teaches the app to auto-categorize “\(matchKeyDisplay)” this way from now on, including future transactions."
         }
+    }
+
+    /// Bank descriptors can run very long. Truncate for display so the caption
+    /// stays a readable sentence rather than a wall of text — the full value is
+    /// still what gets matched on.
+    private var matchKeyDisplay: String {
+        let limit = 34
+        guard matchKey.count > limit else { return matchKey }
+        return matchKey.prefix(limit).trimmingCharacters(in: .whitespaces) + "…"
     }
 
     private var matchKey: String {
