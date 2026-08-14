@@ -67,6 +67,15 @@ enum MerchantHeuristics {
         ("audible", .entertainment),
 
         // 5) Transport / fuel / auto.
+        ("uber", .transport), ("lyft", .transport), ("waymo", .transport), ("shell", .transport),
+        ("chevron", .transport), ("exxon", .transport), ("arco", .transport), ("valero", .transport),
+        ("sunoco", .transport), ("speedway", .transport), ("circle k", .transport),
+        ("quiktrip", .transport), ("gas station", .transport), ("parking", .transport),
+        ("garage", .transport), ("toll", .transport), ("fastrak", .transport), ("e-zpass", .transport),
+        ("ezpass", .transport), ("mta", .transport), ("bart", .transport), ("caltrain", .transport),
+        ("transit", .transport), ("autozone", .transport), ("o'reilly", .transport),
+        ("jiffy lube", .transport), ("car wash", .transport),
+
         // Shared scooters and bikes. "lime" and "spin" are also ordinary
         // words, so the restaurant names that contain them are listed first —
         // the table is first-match-wins over contiguous tokens.
@@ -76,14 +85,6 @@ enum MerchantHeuristics {
         ("bird app", .transport), ("veo ride", .transport), ("citi bike", .transport),
         ("citibike", .transport), ("divvy", .transport), ("bluebikes", .transport),
         ("bay wheels", .transport), ("scooter", .transport),
-        ("uber", .transport), ("lyft", .transport), ("waymo", .transport), ("shell", .transport),
-        ("chevron", .transport), ("exxon", .transport), ("arco", .transport), ("valero", .transport),
-        ("sunoco", .transport), ("speedway", .transport), ("circle k", .transport),
-        ("quiktrip", .transport), ("gas station", .transport), ("parking", .transport),
-        ("garage", .transport), ("toll", .transport), ("fastrak", .transport), ("e-zpass", .transport),
-        ("ezpass", .transport), ("mta", .transport), ("bart", .transport), ("caltrain", .transport),
-        ("transit", .transport), ("autozone", .transport), ("o'reilly", .transport),
-        ("jiffy lube", .transport), ("car wash", .transport),
 
         // 6) Travel.
         ("delta", .travel), ("united air", .travel), ("american air", .travel),
