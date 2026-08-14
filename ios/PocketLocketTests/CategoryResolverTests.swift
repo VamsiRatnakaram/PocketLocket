@@ -24,6 +24,47 @@ final class CategoryResolverTests: XCTestCase {
         XCTAssertEqual(category, .entertainment)
     }
 
+    func testProviderTransferTagDoesNotExcludePeerToPeerFromBudget() {
+        // The reported symptom: identical Zelle payments landed on different
+        // sides of the budget purely because the bank tagged some of them
+        // TRANSFER_OUT and left others uncategorized.
+        let tagged = CategoryResolver.resolve(
+            name: "ZELLE PAYMENT TO ALEX",
+            merchant: nil,
+            plaidPrimary: "TRANSFER_OUT",
+            rules: []
+        )
+        let untagged = CategoryResolver.resolve(
+            name: "ZELLE PAYMENT TO ALEX",
+            merchant: nil,
+            plaidPrimary: nil,
+            rules: []
+        )
+        XCTAssertEqual(tagged, untagged)
+        XCTAssertTrue(tagged.isSpending)
+    }
+
+    func testPeerToPeerStillRespectsASpecificProviderCategory() {
+        let category = CategoryResolver.resolve(
+            name: "PAYPAL *CORNER CAFE",
+            merchant: nil,
+            plaidPrimary: "FOOD_AND_DRINK",
+            rules: []
+        )
+        XCTAssertEqual(category, .food)
+    }
+
+    func testUserRuleStillWinsOverPeerToPeer() {
+        let rule = CategoryRule(matchText: "venmo", category: .food)
+        let category = CategoryResolver.resolve(
+            name: "VENMO PAYMENT",
+            merchant: nil,
+            plaidPrimary: "TRANSFER_OUT",
+            rules: [rule]
+        )
+        XCTAssertEqual(category, .food)
+    }
+
     func testRecognizedProviderCategoryBeatsHeuristic() {
         let category = CategoryResolver.resolve(
             name: "SHELL OIL 4567",
