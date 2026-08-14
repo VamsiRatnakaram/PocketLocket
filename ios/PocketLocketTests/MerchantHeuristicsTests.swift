@@ -94,8 +94,11 @@ final class MerchantHeuristicsTests: XCTestCase {
     }
 
     /// Whole-token matching, so a brand name inside a longer word is not a hit.
+    /// Asserted as "not transport" rather than "no category", because the rest
+    /// of the descriptor is allowed to match something else.
     func testScooterBrandDoesNotMatchInsideLongerWords() {
-        XCTAssertNil(category("SUBLIME DONUTS"))
+        XCTAssertNotEqual(category("SUBLIME DONUTS"), .transport)
+        XCTAssertNotEqual(category("LIMELIGHT SUPPLY CO"), .transport)
     }
 
     func testUnknownMerchantFallsThrough() {
