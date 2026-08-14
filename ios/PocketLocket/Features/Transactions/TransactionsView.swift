@@ -19,6 +19,7 @@ struct TransactionsView: View {
     @State private var isSelecting = false
     @State private var selectedTransactionIDs: Set<String> = []
     @State private var assignmentErrorMessage: String?
+    @State private var rowsCache = DerivedCache<RowsKey, [TransactionListBuilder.Row]>()
 
     enum TxnType: String, CaseIterable, Identifiable {
         case all, expenses, income
@@ -71,44 +72,55 @@ struct TransactionsView: View {
         accountFilter != nil || categoryFilter != nil || typeFilter != .all || period != .all
     }
 
-    private var filtered: [TransactionRecord] {
-        transactions.filter { txn in
-            if let periodInterval, !periodInterval.contains(txn.date) { return false }
-            if let accountFilter, txn.accountId != accountFilter { return false }
-            if let categoryFilter, category(for: txn) != categoryFilter { return false }
-            switch typeFilter {
-            case .all: break
-            case .expenses: if txn.amount <= 0 { return false }
-            case .income: if txn.amount >= 0 { return false }
-            }
-            if !search.isEmpty {
-                return txn.title.localizedCaseInsensitiveContains(search)
-                    || txn.name.localizedCaseInsensitiveContains(search)
-            }
-            return true
-        }
+    private var criteria: TransactionListBuilder.Criteria {
+        TransactionListBuilder.Criteria(
+            search: search,
+            accountId: accountFilter,
+            category: categoryFilter,
+            type: typeFilter,
+            periodInterval: periodInterval,
+            sortOrder: sortOrder
+        )
     }
 
-    private var sortedFiltered: [TransactionRecord] {
-        switch sortOrder {
-        case .dateDesc: return filtered.sorted { $0.date > $1.date }
-        case .dateAsc: return filtered.sorted { $0.date < $1.date }
-        case .amountDesc: return filtered.sorted { $0.amount > $1.amount }
-        case .amountAsc: return filtered.sorted { $0.amount < $1.amount }
+    private struct RowsKey: Equatable {
+        var criteria: TransactionListBuilder.Criteria
+        var dataHash: Int
+        var rulesHash: Int
+    }
+
+    /// The visible list, rebuilt only when the data or the criteria change.
+    ///
+    /// `body` needs this in half a dozen places — the `ForEach`, two toolbar
+    /// `isEmpty` checks, the select-all state, the empty-state overlay, the
+    /// animation trigger — and as a plain computed property every one of those
+    /// re-ran the whole filter and sort over every transaction on file. The
+    /// cache collapses them into a single pass.
+    private var rows: [TransactionListBuilder.Row] {
+        let key = RowsKey(
+            criteria: criteria,
+            dataHash: RecordHash.transactions(transactions),
+            rulesHash: RecordHash.rules(rules)
+        )
+        return rowsCache.value(for: key) {
+            TransactionListBuilder.rows(from: transactions, criteria: criteria) {
+                $0.resolvedCategory(using: rules)
+            }
         }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(sortedFiltered) { txn in
+                ForEach(rows) { row in
+                    let txn = row.transaction
                     if isSelecting {
                         Button { toggleSelection(of: txn) } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: selectedTransactionIDs.contains(txn.id) ? "checkmark.circle.fill" : "circle")
                                     .font(.title3)
                                     .foregroundStyle(selectedTransactionIDs.contains(txn.id) ? Color.accentColor : Color.secondary)
-                                TransactionRow(txn: txn, category: category(for: txn))
+                                TransactionRow(txn: txn, category: row.category)
                             }
                             .contentShape(Rectangle())
                         }
@@ -116,7 +128,7 @@ struct TransactionsView: View {
                         .accessibilityLabel("\(selectedTransactionIDs.contains(txn.id) ? "Deselect" : "Select") \(txn.title)")
                     } else {
                         Button { detail = txn } label: {
-                            TransactionRow(txn: txn, category: category(for: txn))
+                            TransactionRow(txn: txn, category: row.category)
                         }
                         .buttonStyle(PressableStyle(scale: 0.98))
                         .swipeActions(edge: .trailing) {
@@ -149,7 +161,7 @@ struct TransactionsView: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(allVisibleSelected ? "Deselect All" : "Select All") { toggleAllVisible() }
-                            .disabled(sortedFiltered.isEmpty)
+                            .disabled(rows.isEmpty)
                     }
                 } else {
                     filterMenu
@@ -158,7 +170,7 @@ struct TransactionsView: View {
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Select") { isSelecting = true }
-                            .disabled(sortedFiltered.isEmpty)
+                            .disabled(rows.isEmpty)
                     }
                 }
             }
@@ -172,7 +184,7 @@ struct TransactionsView: View {
             } message: {
                 Text(assignmentErrorMessage ?? "Please try again.")
             }
-            .animation(.default, value: filtered.count)
+            .animation(.default, value: rows.count)
             .overlay {
                 if transactions.isEmpty {
                     ContentUnavailableView(
@@ -180,7 +192,7 @@ struct TransactionsView: View {
                         systemImage: "list.bullet.rectangle",
                         description: Text("Connect a bank account to see your spending here.")
                     )
-                } else if filtered.isEmpty {
+                } else if rows.isEmpty {
                     ContentUnavailableView.search(text: search)
                 }
             }
@@ -188,7 +200,7 @@ struct TransactionsView: View {
     }
 
     private var allVisibleSelected: Bool {
-        !sortedFiltered.isEmpty && sortedFiltered.allSatisfy { selectedTransactionIDs.contains($0.id) }
+        !rows.isEmpty && rows.allSatisfy { selectedTransactionIDs.contains($0.id) }
     }
 
     private var selectionBar: some View {
@@ -240,7 +252,7 @@ struct TransactionsView: View {
     }
 
     private func toggleAllVisible() {
-        let visibleIDs = Set(sortedFiltered.map(\.id))
+        let visibleIDs = Set(rows.map(\.id))
         if allVisibleSelected {
             selectedTransactionIDs.subtract(visibleIDs)
         } else {
