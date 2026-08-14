@@ -26,7 +26,7 @@ struct SuggestionsView: View {
             ?? DateInterval(start: .distantPast, duration: 0)
         let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
         return transactions.filter {
-            interval.contains($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
+            interval.containsHalfOpen($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
         }
     }
 
@@ -38,7 +38,7 @@ struct SuggestionsView: View {
         else { return [] }
         let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
         return transactions.filter {
-            interval.contains($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
+            interval.containsHalfOpen($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
         }
     }
 

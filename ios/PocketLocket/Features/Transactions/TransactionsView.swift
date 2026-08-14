@@ -7,6 +7,8 @@ struct TransactionsView: View {
     @Query(sort: \AccountRecord.name) private var accounts: [AccountRecord]
     @Environment(\.modelContext) private var context
 
+    @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
+
     @State private var search = ""
     @State private var accountFilter: String?
     @State private var categoryFilter: SpendCategory?
@@ -92,15 +94,27 @@ struct TransactionsView: View {
             || budgetFilter != .all
     }
 
+    private var excludedAccountIds: Set<String> {
+        SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
+    }
+
     private var filtered: [TransactionRecord] {
         transactions.filter { txn in
-            if let periodInterval, !periodInterval.contains(txn.date) { return false }
+            if let periodInterval, !periodInterval.containsHalfOpen(txn.date) { return false }
             if let accountFilter, txn.accountId != accountFilter { return false }
             if let categoryFilter, category(for: txn) != categoryFilter { return false }
             switch budgetFilter {
             case .all: break
-            case .counted: if !category(for: txn).isSpending { return false }
-            case .excluded: if category(for: txn).isSpending { return false }
+            case .counted:
+                if !SpendingAccountFilter.countsTowardBudget(
+                    category: category(for: txn), amount: txn.amount,
+                    accountId: txn.accountId, excluded: excludedAccountIds
+                ) { return false }
+            case .excluded:
+                if SpendingAccountFilter.countsTowardBudget(
+                    category: category(for: txn), amount: txn.amount,
+                    accountId: txn.accountId, excluded: excludedAccountIds
+                ) { return false }
             }
             switch typeFilter {
             case .all: break

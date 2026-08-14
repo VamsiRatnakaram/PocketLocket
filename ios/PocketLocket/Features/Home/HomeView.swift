@@ -58,7 +58,7 @@ struct HomeView: View {
     /// Only the selected month's transactions from included accounts feed the ring.
     private var monthTransactions: [TransactionRecord] {
         transactions.filter {
-            monthInterval.contains($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excludedAccountIds)
+            monthInterval.containsHalfOpen($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excludedAccountIds)
         }
     }
 
