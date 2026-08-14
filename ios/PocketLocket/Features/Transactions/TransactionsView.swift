@@ -110,6 +110,13 @@ struct TransactionsView: View {
     }
 
     var body: some View {
+        // Read once and thread it through: every reference to `rows` pays for the
+        // content hash that keys the cache, so reading it per call site would
+        // just trade six filter passes for six hashing passes.
+        content(rows: rows)
+    }
+
+    private func content(rows: [TransactionListBuilder.Row]) -> some View {
         NavigationStack {
             List {
                 ForEach(rows) { row in
@@ -160,7 +167,7 @@ struct TransactionsView: View {
                         Button("Cancel") { endSelection() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(allVisibleSelected ? "Deselect All" : "Select All") { toggleAllVisible() }
+                        Button(allVisibleSelected(in: rows) ? "Deselect All" : "Select All") { toggleAllVisible(rows) }
                             .disabled(rows.isEmpty)
                     }
                 } else {
@@ -199,7 +206,7 @@ struct TransactionsView: View {
         }
     }
 
-    private var allVisibleSelected: Bool {
+    private func allVisibleSelected(in rows: [TransactionListBuilder.Row]) -> Bool {
         !rows.isEmpty && rows.allSatisfy { selectedTransactionIDs.contains($0.id) }
     }
 
@@ -251,9 +258,9 @@ struct TransactionsView: View {
         }
     }
 
-    private func toggleAllVisible() {
+    private func toggleAllVisible(_ rows: [TransactionListBuilder.Row]) {
         let visibleIDs = Set(rows.map(\.id))
-        if allVisibleSelected {
+        if allVisibleSelected(in: rows) {
             selectedTransactionIDs.subtract(visibleIDs)
         } else {
             selectedTransactionIDs.formUnion(visibleIDs)
