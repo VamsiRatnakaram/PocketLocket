@@ -76,7 +76,6 @@ enum MerchantHeuristics {
         ("bird app", .transport), ("veo ride", .transport), ("citi bike", .transport),
         ("citibike", .transport), ("divvy", .transport), ("bluebikes", .transport),
         ("bay wheels", .transport), ("scooter", .transport),
-
         ("uber", .transport), ("lyft", .transport), ("waymo", .transport), ("shell", .transport),
         ("chevron", .transport), ("exxon", .transport), ("arco", .transport), ("valero", .transport),
         ("sunoco", .transport), ("speedway", .transport), ("circle k", .transport),
