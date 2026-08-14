@@ -12,12 +12,21 @@ struct TransactionDetailView: View {
     @Query private var rules: [CategoryRule]
 
     @State private var selected: SpendCategory
+    @State private var scope: CategoryAssignment.Scope
     @State private var feedback = 0
+    /// What the scope picker started on, so dismissing an untouched sheet
+    /// writes nothing.
+    private let initialScope: CategoryAssignment.Scope
 
     init(txn: TransactionRecord, currentCategory: SpendCategory) {
         self.txn = txn
         self.currentCategory = currentCategory
         _selected = State(initialValue: currentCategory)
+        let descriptor = (txn.merchantName ?? "") + " " + txn.name
+        let defaultScope: CategoryAssignment.Scope =
+            MerchantHeuristics.isPeerToPeer(descriptor) ? .thisTransactionOnly : .allMatching
+        self.initialScope = defaultScope
+        _scope = State(initialValue: defaultScope)
     }
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 12)]
@@ -75,9 +84,38 @@ struct TransactionDetailView: View {
                     .buttonStyle(PressableStyle())
                 }
             }
-            Text("Choosing a category teaches the app to auto-categorize “\(matchKey)” this way from now on.")
+            scopePicker
+        }
+    }
+
+    /// Lets a choice apply to one transaction instead of every transaction from
+    /// the same merchant.
+    ///
+    /// Previously every recategorization taught a merchant-wide rule, so
+    /// correcting a single Venmo silently retagged your entire Venmo history.
+    /// P2P descriptors are ambiguous per transaction by nature, so they default
+    /// to the narrow scope; ordinary merchants keep the old teach-a-rule
+    /// behavior, which is what makes the app learn.
+    private var scopePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Apply to", selection: $scope) {
+                Text("Just this one").tag(CategoryAssignment.Scope.thisTransactionOnly)
+                Text("All “\(matchKey)”").tag(CategoryAssignment.Scope.allMatching)
+            }
+            .pickerStyle(.segmented)
+
+            Text(scopeExplanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var scopeExplanation: String {
+        switch scope {
+        case .thisTransactionOnly:
+            return "Only this transaction changes. Everything else from “\(matchKey)” is left alone."
+        case .allMatching:
+            return "Teaches the app to auto-categorize “\(matchKey)” this way from now on, including future transactions."
         }
     }
 
@@ -96,7 +134,13 @@ struct TransactionDetailView: View {
     }
 
     private func persistSelection() {
-        guard selected != currentCategory else { return }
-        try? CategoryAssignment.assign(selected, to: [txn], using: rules, in: context)
+        // Only write when the user actually interacted. Opening a sheet and
+        // dismissing it must not pin a category — with the narrow scope that
+        // would freeze an auto-categorized transaction against future rule
+        // changes.
+        let changedCategory = selected != currentCategory
+        let changedScope = scope != initialScope
+        guard changedCategory || changedScope else { return }
+        try? CategoryAssignment.assign(selected, to: [txn], using: rules, in: context, scope: scope)
     }
 }

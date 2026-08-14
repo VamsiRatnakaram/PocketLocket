@@ -76,6 +76,16 @@ enum CategoryResolver {
 
 @MainActor
 enum CategoryAssignment {
+    /// How far a category choice should reach.
+    enum Scope {
+        /// Applies to this transaction alone, leaving every other transaction
+        /// from the same merchant untouched.
+        case thisTransactionOnly
+        /// Teaches a rule so every transaction matching the merchant descriptor
+        /// is categorized this way, now and in future syncs.
+        case allMatching
+    }
+
     static func matchKey(for transaction: TransactionRecord) -> String {
         let descriptor = transaction.merchantName ?? transaction.name
         let cleaned = MerchantHeuristics.ruleMatchText(for: descriptor)
@@ -86,13 +96,25 @@ enum CategoryAssignment {
         _ category: SpendCategory,
         to transactions: [TransactionRecord],
         using rules: [CategoryRule],
-        in context: ModelContext
+        in context: ModelContext,
+        scope: Scope = .allMatching
     ) throws {
+        guard scope == .allMatching else {
+            for transaction in transactions {
+                transaction.categoryOverride = category
+            }
+            try context.save()
+            return
+        }
+
         var rulesByKey = rules.reduce(into: [String: CategoryRule]()) { result, rule in
             result[rule.matchText] = rule
         }
 
         for transaction in transactions {
+            // A stale per-transaction override would outrank the rule being
+            // taught here, so the choice would appear not to take effect.
+            transaction.categoryOverride = nil
             let key = matchKey(for: transaction)
             if let existing = rulesByKey[key] {
                 existing.categoryRaw = category.rawValue
@@ -107,9 +129,15 @@ enum CategoryAssignment {
 }
 
 extension TransactionRecord {
-    /// The category after applying user rules, heuristics, then Plaid mapping.
+    /// The category after applying a per-transaction override, then user rules,
+    /// heuristics, and finally the provider mapping.
+    ///
+    /// The override sits above everything because it's the most specific
+    /// statement the user can make: it's about this transaction and nothing
+    /// else, so no broader rule should be able to contradict it.
     func resolvedCategory(using rules: [CategoryRule]) -> SpendCategory {
-        CategoryResolver.resolve(
+        if let categoryOverride { return categoryOverride }
+        return CategoryResolver.resolve(
             name: name,
             merchant: merchantName,
             plaidPrimary: categoryPrimary,
