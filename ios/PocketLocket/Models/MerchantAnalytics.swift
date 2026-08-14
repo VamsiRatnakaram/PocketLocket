@@ -218,7 +218,12 @@ enum MerchantNormalizer {
     }
 
     private static func computeNormalized(_ raw: String) -> String {
-        var value = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        // Fold case *and* diacritics, matching how `MerchantHeuristics`
+        // tokenizes: without it "CAFÉ ZOE" and "CAFE ZOE" are one merchant to
+        // categorization and two merchants to the Analysis tab.
+        var value = raw
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return raw }
 
         value = resolveStarSegments(value)

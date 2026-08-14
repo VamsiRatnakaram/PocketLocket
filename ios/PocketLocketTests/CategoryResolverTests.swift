@@ -230,4 +230,31 @@ final class PerTransactionCategoryTests: XCTestCase {
         XCTAssertNil(trip.category(for: "UBER *EATS"))
         XCTAssertNotNil(trip.category(for: "UBER *TRIP"))
     }
+
+    @MainActor
+    func testTaughtRuleKeyAndMatchingIgnoreCase() throws {
+        let container = try ModelContainer(
+            for: TransactionRecord.self, CategoryRule.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let variants = ["SAFEWAY 1993 SEATTLE WA", "safeway #1993", "SaFeWaY"]
+        let ledger = variants.map {
+            TransactionRecord(
+                id: $0, plaidTransactionId: $0, name: $0, merchantName: $0,
+                amount: 10, isoCurrencyCode: "USD", date: Date(), pending: false,
+                categoryPrimary: nil, categoryDetailed: nil, logoURL: nil, accountId: nil
+            )
+        }
+        ledger.forEach(container.mainContext.insert)
+
+        let keys = Set(ledger.map { CategoryAssignment.matchKey(for: $0, in: ledger) })
+        XCTAssertEqual(keys, ["safeway"])
+
+        let index = CategoryRuleIndex(
+            specs: [CategoryRuleSpec(matchText: "SAFEWAY", category: .groceries)]
+        )
+        for variant in variants {
+            XCTAssertEqual(index.category(for: variant), .groceries, variant)
+        }
+    }
 }

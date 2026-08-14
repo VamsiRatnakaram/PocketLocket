@@ -291,4 +291,35 @@ final class MerchantAnalyticsTests: XCTestCase {
         let uber = MerchantNormalizer.canonicalKeys(for: ["Uber Trip 123", "Uber Eats 456"])
         XCTAssertEqual(uber["Uber Eats 456"], "Uber Eats")
     }
+
+    func testMerchantIdentityIgnoresCaseAndAccents() {
+        let variants = ["SAFEWAY #1993", "safeway #1993", "SaFeWaY #1993"]
+        XCTAssertEqual(Set(variants.map(MerchantNormalizer.normalize)).count, 1)
+        XCTAssertEqual(Set(variants.map(MerchantNormalizer.groupingKey)).count, 1)
+        XCTAssertEqual(stats(variants).count, 1)
+
+        XCTAssertEqual(
+            MerchantNormalizer.normalize("CAFÉ ZOE"),
+            MerchantNormalizer.normalize("Cafe Zoe")
+        )
+        XCTAssertEqual(
+            MerchantNormalizer.normalize("tst*roquette"),
+            MerchantNormalizer.normalize("TST* ROQUETTE")
+        )
+        XCTAssertEqual(
+            MerchantNormalizer.normalize("lime*7"),
+            MerchantNormalizer.normalize("LIME*2")
+        )
+        XCTAssertEqual(
+            MerchantNormalizer.normalize("google *webpass"),
+            MerchantNormalizer.normalize("GOOGLE *Webpass")
+        )
+    }
+
+    func testMixedCaseDescriptorsLandInOneMerchant() {
+        let merchants = stats(["UBER *EATS", "uber *eats", "Uber *Eats"])
+        XCTAssertEqual(merchants.count, 1)
+        XCTAssertEqual(merchants.first?.visitCount, 3)
+        XCTAssertTrue(merchants.first?.matches("uBeR *eAtS") ?? false)
+    }
 }
