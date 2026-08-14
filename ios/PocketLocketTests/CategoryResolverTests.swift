@@ -220,8 +220,14 @@ final class PerTransactionCategoryTests: XCTestCase {
         }
         ledger.forEach(container.mainContext.insert)
         let eatsKey = CategoryAssignment.matchKey(for: ledger[1], in: ledger)
-        let index = CategoryRuleIndex(specs: [CategoryRuleSpec(matchText: eatsKey, category: .food)])
-        XCTAssertNil(index.category(for: "UBER *TRIP"))
-        XCTAssertNotNil(index.category(for: "UBER *EATS"))
+        let eats = CategoryRuleIndex(specs: [CategoryRuleSpec(matchText: eatsKey, category: .food)])
+        XCTAssertNil(eats.category(for: "UBER *TRIP"))
+        XCTAssertNotNil(eats.category(for: "UBER *EATS"))
+
+        // …and the reverse: teaching from a ride must not swallow Uber Eats.
+        let tripKey = CategoryAssignment.matchKey(for: ledger[0], in: ledger)
+        let trip = CategoryRuleIndex(specs: [CategoryRuleSpec(matchText: tripKey, category: .transport)])
+        XCTAssertNil(trip.category(for: "UBER *EATS"))
+        XCTAssertNotNil(trip.category(for: "UBER *TRIP"))
     }
 }

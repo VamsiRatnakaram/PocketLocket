@@ -145,13 +145,29 @@ enum CategoryAssignment {
                 for: ledger.map { MerchantNormalizer.groupingKey($0.merchantName ?? $0.name) },
                 policy: .userAsserted
             )
-            if let name = canonical[MerchantNormalizer.groupingKey(descriptor)] {
+            if let name = canonical[MerchantNormalizer.groupingKey(descriptor)],
+               !isTooBroad(name, among: canonical.values) {
                 let cleaned = MerchantHeuristics.ruleMatchText(for: name)
                 return (cleaned.isEmpty ? name : cleaned).lowercased()
             }
+            // The merchant identity is a prefix of another merchant in the
+            // ledger, so a rule keyed on it would silently swallow that one
+            // too. Stay with the descriptor, which is specific enough.
+            let cleaned = MerchantHeuristics.ruleMatchText(for: descriptor)
+            if !cleaned.isEmpty { return cleaned.lowercased() }
         }
         let cleaned = MerchantHeuristics.ruleMatchText(for: normalized)
         return (cleaned.isEmpty ? descriptor : cleaned).lowercased()
+    }
+
+    /// Whether a rule keyed on `name` would also match a different merchant
+    /// that happens to start with it — "Uber" would catch every "Uber Eats".
+    private static func isTooBroad(_ name: String, among names: some Sequence<String>) -> Bool {
+        let tokens = MerchantHeuristics.tokens(in: name)
+        return names.contains { other in
+            let otherTokens = MerchantHeuristics.tokens(in: other)
+            return otherTokens.count > tokens.count && otherTokens.starts(with: tokens)
+        }
     }
 
     static func assign(
