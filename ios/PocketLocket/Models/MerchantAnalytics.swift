@@ -11,7 +11,12 @@ enum MerchantNormalizer {
     /// Any other name before a star is the merchant itself, with a
     /// per-transaction reference behind it — see `stripStarSuffix`.
     private static let processorPrefixes = [
-        "sq", "sqc", "tst", "pp", "paypal", "pyp", "sp", "wl", "wpy", "ebay", "stripe", "shopify"
+        "sq", "sqc", "tst", "pp", "paypal", "pyp", "sp", "wl", "wpy", "ebay", "stripe", "shopify",
+        // Google Payments bills on behalf of whatever you actually subscribed
+        // to — "GOOGLE *Webpass" is an ISP, "GOOGLE *YouTube" is streaming.
+        // Without this they'd all collapse into one "Google" merchant spanning
+        // three unrelated categories.
+        "google"
     ]
 
     /// Real USPS state/territory codes only — deliberately not "any 2-letter
@@ -77,7 +82,62 @@ enum MerchantNormalizer {
         // Don't throw the descriptor away when the half in front of the star is
         // too short to identify a merchant on its own.
         guard first.count >= 3 else { return value }
+
+        // "UBER *EATS" is a genuinely different business from "UBER *TRIP",
+        // while "LIME*1" and "LYFT *Priority" are one business with a
+        // per-charge reference stuck on the end. Rather than keep a list of
+        // brands that have real sub-brands, ask the curated category table:
+        // keep the suffix only when brand + suffix is recognized as its own
+        // merchant in a *different* category than the brand alone.
+        let remainder = segments.dropFirst()
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        if !remainder.isEmpty {
+            let combined = "\(first) \(remainder)"
+            if let combinedCategory = MerchantHeuristics.category(for: combined),
+               combinedCategory != MerchantHeuristics.category(for: first) {
+                return combined
+            }
+        }
         return first
+    }
+
+    /// Collapses normalized keys that are merely a longer form of another key
+    /// already present in the same ledger: "Safeway 1993 Seattle" folds into
+    /// "Safeway", "Roquette - Seattle" into "Roquette".
+    ///
+    /// This is what finally strips store numbers and city suffixes without
+    /// needing a list of city names. The extra tokens are only dropped when the
+    /// barer merchant name genuinely appears in the user's own history, so two
+    /// distinct merchants are never merged on a guess — and never when the two
+    /// forms carry different known categories.
+    static func canonicalKeys(for keys: some Sequence<String>) -> [String: String] {
+        let tokenized = Set(keys).map {
+            (key: $0, tokens: $0.lowercased().split(separator: " ").map(String.init))
+        }
+        // Shortest first, so a key folds into the barest form available.
+        let byLength = tokenized.sorted { $0.tokens.count < $1.tokens.count }
+
+        var mapping: [String: String] = [:]
+        for entry in tokenized {
+            var canonical = entry.key
+            for candidate in byLength where candidate.tokens.count < entry.tokens.count {
+                guard entry.tokens.starts(with: candidate.tokens),
+                      categoriesAgree(candidate.key, entry.key) else { continue }
+                canonical = candidate.key
+                break
+            }
+            mapping[entry.key] = canonical
+        }
+        return mapping
+    }
+
+    /// Two forms may only be merged when they don't resolve to *different*
+    /// known categories — "Uber Eats" must not fold into "Uber".
+    private static func categoriesAgree(_ shorter: String, _ longer: String) -> Bool {
+        guard let short = MerchantHeuristics.category(for: shorter),
+              let long = MerchantHeuristics.category(for: longer) else { return true }
+        return short == long
     }
 
     private static func computeNormalized(_ raw: String) -> String {
@@ -144,7 +204,15 @@ enum MerchantAnalytics {
         let firstDate: Date
         let lastDate: Date
         let trend: Trend
+        /// Every normalized descriptor folded into this merchant, so drill-downs
+        /// can find the same transactions the stats were built from.
+        let aliases: Set<String>
         var id: String { name }
+
+        func matches(_ title: String) -> Bool {
+            let key = MerchantNormalizer.normalize(title)
+            return key == name || aliases.contains(key)
+        }
     }
 
     struct CategoryMonth: Identifiable {
@@ -178,8 +246,15 @@ enum MerchantAnalytics {
         let midpoint = earliest.addingTimeInterval(latest.timeIntervalSince(earliest) / 2)
 
         var grouped: [String: [Input]] = [:]
+        var aliases: [String: Set<String>] = [:]
+        let canonical = MerchantNormalizer.canonicalKeys(
+            for: spending.map { MerchantNormalizer.normalize($0.title) }
+        )
         for item in spending {
-            grouped[MerchantNormalizer.normalize(item.title), default: []].append(item)
+            let normalized = MerchantNormalizer.normalize(item.title)
+            let key = canonical[normalized] ?? normalized
+            grouped[key, default: []].append(item)
+            aliases[key, default: []].insert(normalized)
         }
 
         return grouped.map { name, items in
@@ -201,7 +276,8 @@ enum MerchantAnalytics {
                 averagePerVisit: total / Double(items.count),
                 firstDate: dates.min() ?? earliest,
                 lastDate: dates.max() ?? latest,
-                trend: trend(current: recent, previous: earlier)
+                trend: trend(current: recent, previous: earlier),
+                aliases: aliases[name] ?? [name]
             )
         }
         .sorted { $0.totalSpent > $1.totalSpent }
@@ -229,8 +305,12 @@ enum MerchantAnalytics {
     ) -> [MerchantStats] {
         let spending = spendingOnly(inputs)
         var monthsByMerchant: [String: Set<DateComponents>] = [:]
+        let canonical = MerchantNormalizer.canonicalKeys(
+            for: spending.map { MerchantNormalizer.normalize($0.title) }
+        )
         for item in spending {
-            let key = MerchantNormalizer.normalize(item.title)
+            let normalized = MerchantNormalizer.normalize(item.title)
+            let key = canonical[normalized] ?? normalized
             let comps = calendar.dateComponents([.year, .month], from: item.date)
             monthsByMerchant[key, default: []].insert(comps)
         }

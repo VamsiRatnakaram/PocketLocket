@@ -202,5 +202,75 @@ final class MerchantAnalyticsTests: XCTestCase {
         let averages = MerchantAnalytics.categoryAverages(inputs, calendar: calendar)
         let health = try? XCTUnwrap(averages.first { $0.category == .health })
         XCTAssertEqual(health?.averagePerMonth ?? 0, 10, accuracy: 0.001)
+
+    // MARK: - Real descriptor shapes from Charlie's ledger
+
+    private func stats(_ titles: [String]) -> [MerchantAnalytics.MerchantStats] {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let inputs = titles.enumerated().map { index, title in
+            MerchantAnalytics.Input(
+                title: title,
+                amount: 10,
+                category: MerchantHeuristics.category(for: title) ?? .other,
+                date: base.addingTimeInterval(Double(index) * 86_400)
+            )
+        }
+        return MerchantAnalytics.merchantStats(inputs)
+    }
+
+    func testGooglePaymentsResolvesToTheBilledService() {
+        XCTAssertEqual(MerchantNormalizer.normalize("Google *Webpass"), "Webpass")
+        XCTAssertEqual(MerchantNormalizer.normalize("GOOGLE *YouTube"), "Youtube")
+        XCTAssertNotEqual(
+            MerchantNormalizer.normalize("Google *Webpass"),
+            MerchantNormalizer.normalize("GOOGLE *YouTube")
+        )
+    }
+
+    func testPerChargeReferencesCollapseToTheBrand() {
+        for title in ["LIME*1", "LIME*2", "Lime*RIDE S2FQ", "Lime"] {
+            XCTAssertEqual(MerchantNormalizer.normalize(title), "Lime", title)
+        }
+        for title in ["LYFT *Priority", "LYFT   *2 RIDES 11-13", "Lyft"] {
+            XCTAssertEqual(MerchantNormalizer.normalize(title), "Lyft", title)
+        }
+    }
+
+    func testProcessorPrefixesResolveToTheRealMerchant() {
+        XCTAssertEqual(MerchantNormalizer.normalize("TST* ROQUETTE"), "Roquette")
+        XCTAssertEqual(MerchantNormalizer.normalize("SQ *BENJI's INC"), "Benji's Inc")
+    }
+
+    func testStoreNumberAndCitySuffixesFoldIntoTheBareMerchant() {
+        let merchants = stats(["Safeway #1993", "SAFEWAY 1993 SEATTLE WA", "Safeway"])
+        XCTAssertEqual(merchants.count, 1)
+        XCTAssertEqual(merchants.first?.name, "Safeway")
+        XCTAssertEqual(merchants.first?.visitCount, 3)
+
+        let roquette = stats(["TST* ROQUETTE", "TST*ROQUETTE - SEATTLE"])
+        XCTAssertEqual(roquette.count, 1)
+        XCTAssertEqual(roquette.first?.name, "Roquette")
+    }
+
+    func testCitySuffixNeverMergesWhenTheBareNameIsAbsent() {
+        // Nothing in the ledger is plain "Roquette", so the longer form has to
+        // stand on its own rather than be guessed at.
+        let merchants = stats(["TST*ROQUETTE - SEATTLE", "TST*ROQUETTE - PORTLAND"])
+        XCTAssertEqual(merchants.count, 2)
+    }
+
+    func testSubBrandsInADifferentCategoryStaySeparate() {
+        XCTAssertEqual(MerchantNormalizer.normalize("UBER *TRIP"), "Uber")
+        XCTAssertEqual(MerchantNormalizer.normalize("UBER *EATS"), "Uber Eats")
+
+        let merchants = stats(["UBER *TRIP", "UBER *EATS"])
+        XCTAssertEqual(merchants.count, 2)
+        XCTAssertEqual(Set(merchants.map(\.category)), [.transport, .food])
+    }
+
+    func testDrillDownFindsEveryTransactionCountedInTheStats() {
+        let titles = ["Safeway #1993", "SAFEWAY 1993 SEATTLE WA", "Safeway"]
+        guard let merchant = stats(titles).first else { return XCTFail("no merchant") }
+        XCTAssertEqual(titles.filter { merchant.matches($0) }.count, merchant.visitCount)
     }
 }
