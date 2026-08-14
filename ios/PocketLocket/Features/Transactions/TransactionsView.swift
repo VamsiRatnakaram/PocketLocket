@@ -367,17 +367,20 @@ struct TransactionsView: View {
                         Text(option.rawValue).tag(option)
                     }
                 }
-                // An inline Picker, not Buttons: it draws the system's own
-                // selection checkmark. Swapping each option's icon for a
-                // checkmark when selected meant the icon column carried two
-                // different meanings at once, and the arrows it swapped out
-                // read as directions rather than as sort orders.
+                // A Picker, not Buttons: it draws the system's own selection
+                // checkmark. Swapping each option's icon for a checkmark when
+                // selected meant the icon column carried two different
+                // meanings at once, and the arrows it swapped out read as
+                // directions rather than as sort orders.
+                //
+                // Left as a submenu like every other row: inline expanded all
+                // four options in place, so the menu opened as one long list
+                // with a single section splayed out and the rest collapsed.
                 Picker("Sort", selection: $sortOrder) {
                     ForEach(SortOrder.allCases) { option in
                         Text(option.rawValue).tag(option)
                     }
                 }
-                .pickerStyle(.inline)
                 if hasActiveFilters {
                     Divider()
                     Button(role: .destructive) {
