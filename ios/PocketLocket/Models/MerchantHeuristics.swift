@@ -10,8 +10,14 @@ enum MerchantHeuristics {
         // 1) Transfers, card payments & investments — NEVER counted as spend.
         //    Listed first so, with several accounts linked, moving money between
         //    them (or paying a card) doesn't inflate the spending ring.
-        ("payment thank you", .transfer), ("autopay", .transfer), ("auto pay", .transfer),
-        ("online payment", .transfer), ("mobile payment", .transfer), ("bill pay", .transfer),
+        // Bare "autopay"/"auto pay" and "mobile payment" are not card-payment
+        // evidence: Netflix, Verizon, Geico and every other biller use them
+        // too, and reading those as transfers erased real spending from the
+        // budget entirely. They now need card context.
+        ("payment thank you", .transfer), ("card autopay", .transfer), ("crd autopay", .transfer),
+        ("discover autopay", .transfer), ("amex autopay", .transfer), ("citi autopay", .transfer),
+        ("capital one autopay", .transfer),
+        ("online payment", .transfer), ("bill pay", .transfer),
         ("credit card payment", .transfer), ("card payment", .transfer), ("e-payment", .transfer),
         ("epayment", .transfer),
         ("ach payment", .transfer), ("ach pmt", .transfer),
@@ -32,8 +38,17 @@ enum MerchantHeuristics {
         //     move money between two of the user's own accounts and would
         //     otherwise double-count as spend on top of the card's own
         //     transactions for the same purchases.
+        //     Matching is over contiguous whole tokens, so "cc pymt" cannot
+        //     reach the "mobile pymt" in Capital One's descriptor and the two
+        //     abbreviations each need their own entry. "pymt" and "e payment"
+        //     are abbreviations banks only use for card payments, and token
+        //     matching stops "mobile pymt" from touching "T-Mobile payment".
         ("chase credit crd", .transfer), ("cc payment", .transfer), ("cc pymt", .transfer),
-        ("payment to crd", .transfer),
+        //     Deliberately not "autopay": Netflix, Verizon and every other
+        //     biller use it too, and misreading those as transfers would erase
+        //     real spending from the budget.
+        ("payment to crd", .transfer), ("mobile pymt", .transfer),
+        ("e payment", .transfer), ("online pymt", .transfer),
 
         // 2) Income (inflows).
         ("payroll", .income), ("paycheck", .income), ("direct deposit", .income),
