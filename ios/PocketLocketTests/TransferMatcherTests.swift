@@ -61,16 +61,51 @@ final class TransferMatcherTests: XCTestCase {
         XCTAssertTrue(matches.isEmpty)
     }
 
+    /// A statement-cycle gap has to pair. The debit and the posted credit are
+    /// routinely weeks apart, so anything narrower silently misses real payoffs.
+    func testMatchesAcrossAStatementCycleGap() {
+        let matches = TransferMatcher.match(
+            candidates: [
+                candidate("out", checking, 500, 0),
+                candidate("in", card, -500, 24),
+            ],
+            transferAccountIds: [card]
+        )
+
+        XCTAssertEqual(matches.count, 2)
+        XCTAssertEqual(matches["out"], matches["in"])
+    }
+
     func testRespectsPostingWindow() {
         let matches = TransferMatcher.match(
             candidates: [
                 candidate("out", checking, 500, 0),
-                candidate("in", card, -500, 30),
+                candidate("in", card, -500, 45),
             ],
             transferAccountIds: [card]
         )
 
         XCTAssertTrue(matches.isEmpty)
+    }
+
+    /// Widening to a month means more equal amounts land in range, so the
+    /// closest-posting rule is doing real work: next month's payment must not
+    /// steal this month's credit.
+    func testClosestPostingWinsWithinAWiderWindow() {
+        let matches = TransferMatcher.match(
+            candidates: [
+                candidate("out-january", checking, 500, 0),
+                candidate("out-february", checking, 500, 28),
+                candidate("in-january", card, -500, 2),
+                candidate("in-february", card, -500, 30),
+            ],
+            transferAccountIds: [card]
+        )
+
+        XCTAssertEqual(matches.count, 4)
+        XCTAssertEqual(matches["out-january"], matches["in-january"])
+        XCTAssertEqual(matches["out-february"], matches["in-february"])
+        XCTAssertEqual(Set(matches.values).count, 2)
     }
 
     /// Three identical payments in a month must consume three distinct credits.

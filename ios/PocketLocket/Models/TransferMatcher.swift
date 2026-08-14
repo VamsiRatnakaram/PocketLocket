@@ -49,9 +49,20 @@ enum TransferMatcher {
         }
     }
 
-    /// How far apart the two legs may post. Card payments usually clear within
-    /// a couple of days; a wider window mostly buys false positives.
-    static let defaultWindowInDays = 5
+    /// How far apart the two legs may post.
+    ///
+    /// A full month, applied as a sliding window around each transaction rather
+    /// than a calendar boundary: card payments are driven by statement cycles,
+    /// so the debit and the posted credit can sit weeks apart (and a payment
+    /// made near a cycle close routinely straddles a month boundary, which is
+    /// why this isn't anchored to calendar months).
+    ///
+    /// Widening the window raises the chance two unrelated equal amounts fall
+    /// inside it, so the precision here rests on the other constraints: the
+    /// legs must be on different accounts, one side must be a credit or loan
+    /// account, and each leg can be used only once with the closest-posting
+    /// pair winning.
+    static let defaultWindowInDays = 31
 
     /// Pairs balancing transactions, returning transaction id -> pair id.
     ///
@@ -62,7 +73,8 @@ enum TransferMatcher {
     ///     i.e. credit cards and loans. Requiring this is what stops a $50
     ///     purchase and an unrelated $50 refund between two checking accounts
     ///     from looking like a transfer.
-    ///   - windowInDays: maximum posting gap between the legs.
+    ///   - windowInDays: maximum posting gap between the legs. Defaults to a
+    ///     one-month sliding window (see `defaultWindowInDays`).
     static func match(
         candidates: [Candidate],
         transferAccountIds: Set<String>,
