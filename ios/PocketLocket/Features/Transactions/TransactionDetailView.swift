@@ -23,8 +23,16 @@ struct TransactionDetailView: View {
         self.currentCategory = currentCategory
         _selected = State(initialValue: currentCategory)
         let descriptor = (txn.merchantName ?? "") + " " + txn.name
-        let defaultScope: CategoryAssignment.Scope =
-            MerchantHeuristics.isPeerToPeer(descriptor) ? .thisTransactionOnly : .allMatching
+        let defaultScope: CategoryAssignment.Scope
+        if txn.categoryOverride != nil {
+            // Reopening a transaction the user already scoped to itself has to
+            // show that choice. Defaulting back to "All like this" meant
+            // changing the category a second time silently widened it into a
+            // merchant-wide rule the user never asked for.
+            defaultScope = .thisTransactionOnly
+        } else {
+            defaultScope = MerchantHeuristics.isPeerToPeer(descriptor) ? .thisTransactionOnly : .allMatching
+        }
         self.initialScope = defaultScope
         _scope = State(initialValue: defaultScope)
     }
