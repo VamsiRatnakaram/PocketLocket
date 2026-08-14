@@ -165,13 +165,19 @@ struct AnalysisCategoryDetailView: View {
     private func toolbarMenu(_ content: Content) -> some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                Picker("Sort", selection: $sortOrder) {
-                    // No icons: the picker draws its own checkmark against the
-                    // selection, so an icon column would be a second, competing
-                    // meaning in the same row.
-                    ForEach(SortOrder.allCases) { option in
-                        Text(option.rawValue).tag(option)
+                // A submenu, not a bare Picker: this menu has other rows, and a
+                // bare Picker draws its options expanded in place, which made
+                // the menu open as one long list.
+                Menu("Sort") {
+                    Picker("Sort", selection: $sortOrder) {
+                        // No icons: the picker draws its own checkmark against
+                        // the selection, so an icon column would be a second,
+                        // competing meaning in the same row.
+                        ForEach(SortOrder.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
                     }
+                    .pickerStyle(.inline)
                 }
                 // A VoiceOver-reachable equivalent of tapping the bars, which
                 // are not individually focusable.

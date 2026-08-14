@@ -342,44 +342,58 @@ struct TransactionsView: View {
     private var filterMenu: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                // Pickers, not Buttons: each draws the system's own selection
-                // checkmark. Swapping an option's icon for a checkmark when it
-                // was selected made the icon column carry two meanings at once.
-                Picker("Account", selection: $accountFilter) {
-                    Text("All accounts").tag(String?.none)
-                    ForEach(accounts) { account in
-                        Text(account.displayName).tag(String?.some(account.id))
-                    }
-                }
-                Picker("Category", selection: $categoryFilter) {
-                    Text("All categories").tag(SpendCategory?.none)
-                    ForEach(SpendCategory.allCases) { cat in
-                        Label(cat.displayName, systemImage: cat.symbol).tag(SpendCategory?.some(cat))
-                    }
-                }
-                Picker("Budget", selection: $budgetFilter) {
-                    ForEach(BudgetFilter.allCases) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                }
-                Picker("Period", selection: $period) {
-                    ForEach(Period.allCases) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                }
-                // A Picker, not Buttons: it draws the system's own selection
-                // checkmark. Swapping each option's icon for a checkmark when
-                // selected meant the icon column carried two different
-                // meanings at once, and the arrows it swapped out read as
-                // directions rather than as sort orders.
+                // Each filter is a submenu wrapping an inline Picker.
                 //
-                // Left as a submenu like every other row: inline expanded all
-                // four options in place, so the menu opened as one long list
-                // with a single section splayed out and the rest collapsed.
-                Picker("Sort", selection: $sortOrder) {
-                    ForEach(SortOrder.allCases) { option in
-                        Text(option.rawValue).tag(option)
+                // A bare Picker in a Menu is not reliably collapsed — it draws
+                // its options expanded in place, so opening the filter gave one
+                // long splayed-out list of every account, category and period
+                // at once. Nesting the Menu guarantees a single compact row per
+                // filter, and the inline Picker inside it keeps the system's
+                // own selection checkmark rather than swapping an option's icon
+                // for one.
+                Menu("Account") {
+                    Picker("Account", selection: $accountFilter) {
+                        Text("All accounts").tag(String?.none)
+                        ForEach(accounts) { account in
+                            Text(account.displayName).tag(String?.some(account.id))
+                        }
                     }
+                    .pickerStyle(.inline)
+                }
+                Menu("Category") {
+                    Picker("Category", selection: $categoryFilter) {
+                        Text("All categories").tag(SpendCategory?.none)
+                        ForEach(SpendCategory.allCases) { cat in
+                            Label(cat.displayName, systemImage: cat.symbol).tag(SpendCategory?.some(cat))
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
+                Menu("Budget") {
+                    Picker("Budget", selection: $budgetFilter) {
+                        ForEach(BudgetFilter.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
+                Menu("Period") {
+                    Picker("Period", selection: $period) {
+                        ForEach(Period.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
+                // The arrows this replaced read as directions rather than as
+                // sort orders, so options are text-only here.
+                Menu("Sort") {
+                    Picker("Sort", selection: $sortOrder) {
+                        ForEach(SortOrder.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    .pickerStyle(.inline)
                 }
                 if hasActiveFilters {
                     Divider()
