@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var showBackup = false
     @State private var showDisconnectConfirmation = false
     @State private var disconnectErrorMessage: String?
+    @State private var showResetConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -101,7 +102,7 @@ struct SettingsView: View {
                     Button { showBackup = true } label: {
                         Label("Backup & Transfer…", systemImage: "lock.doc")
                     }
-                    Button(role: .destructive) { resetLocalData() } label: {
+                    Button(role: .destructive) { showResetConfirmation = true } label: {
                         Text("Reset local data")
                     }
                 } header: {
@@ -134,9 +135,23 @@ struct SettingsView: View {
             } message: {
                 Text("Choose whether transactions and accounts synced from SimpleFIN stay on this device. Imported and manual data will not be deleted.")
             }
+            .confirmationDialog(
+                "Reset local data?",
+                isPresented: $showResetConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Reset and Keep Connection", role: .destructive) {
+                    resetLocalData(disconnectSimpleFIN: false)
+                }
+                Button("Reset and Disconnect SimpleFIN", role: .destructive) {
+                    resetLocalData(disconnectSimpleFIN: true)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This deletes every account, transaction and category rule on this device. Keeping the connection lets the next sync pull your SimpleFIN data back; disconnecting means re-entering your setup token.")
+            }
             .alert(
-                "Couldn’t Delete SimpleFIN Data",
-                isPresented: Binding(
+                "Couldn’t Delete SimpleFIN Data",                isPresented: Binding(
                     get: { disconnectErrorMessage != nil },
                     set: { if !$0 { disconnectErrorMessage = nil } }
                 )
@@ -160,13 +175,19 @@ struct SettingsView: View {
         )
     }
 
-    private func resetLocalData() {
+    /// Deletes everything this device holds. The SimpleFIN connection is kept
+    /// or dropped on request: a reset is usually about clearing bad data, and
+    /// re-entering a setup token to get the same accounts back is busywork —
+    /// but someone handing the phone on wants the credential gone too.
+    private func resetLocalData(disconnectSimpleFIN: Bool) {
         try? context.delete(model: TransactionRecord.self)
         try? context.delete(model: AccountRecord.self)
         try? context.delete(model: CategoryRule.self)
         try? context.save()
-        SimpleFINStore.clear()
-        simplefinConnected = false
+        if disconnectSimpleFIN {
+            SimpleFINStore.clear()
+            simplefinConnected = false
+        }
         dismiss()
     }
 
