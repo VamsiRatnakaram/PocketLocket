@@ -74,8 +74,10 @@ final class TransactionListBuilderTests: XCTestCase {
 
     func testSortOrders() {
         XCTAssertEqual(rows(.init(sortOrder: .dateAsc)).map(\.id), ["1", "2", "3"])
-        XCTAssertEqual(rows(.init(sortOrder: .amountDesc)).map(\.id), ["2", "1", "3"])
-        XCTAssertEqual(rows(.init(sortOrder: .amountAsc)).map(\.id), ["3", "1", "2"])
+        // By size: the $2,000 paycheck is the largest transaction here even
+        // though it is money in and therefore negative.
+        XCTAssertEqual(rows(.init(sortOrder: .amountDesc)).map(\.id), ["3", "2", "1"])
+        XCTAssertEqual(rows(.init(sortOrder: .amountAsc)).map(\.id), ["1", "2", "3"])
     }
 
     /// Each row carries the category used to filter it, so the list never has
@@ -105,5 +107,23 @@ final class TransactionListBuilderTests: XCTestCase {
             return .other
         }
         XCTAssertEqual(resolved, ["2"], "Only the surviving transaction should pay for categorization")
+    }
+
+    /// Positive is money out and negative is money in, so sorting on the raw
+    /// amount put the largest deposit last under "Largest first".
+    func testAmountSortOrdersBySizeNotBySign() {
+        let built = TransactionListBuilder.rows(
+            from: [
+                txn("small-expense", name: "Coffee", amount: 5, day: 1),
+                txn("big-deposit", name: "Paycheck", amount: -900, day: 2),
+                txn("big-expense", name: "Rent", amount: 400, day: 3),
+            ],
+            criteria: TransactionListBuilder.Criteria(sortOrder: .amountDesc),
+            resolve: { _ in .other }
+        )
+        XCTAssertEqual(built.map(\.id), ["big-deposit", "big-expense", "small-expense"])
+
+        let ascending = TransactionListBuilder.sort(built, by: .amountAsc)
+        XCTAssertEqual(ascending.map(\.id), ["small-expense", "big-expense", "big-deposit"])
     }
 }

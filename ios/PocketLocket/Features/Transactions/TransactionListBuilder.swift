@@ -68,8 +68,11 @@ enum TransactionListBuilder {
         switch order {
         case .dateDesc: return rows.sorted { $0.transaction.date > $1.transaction.date }
         case .dateAsc: return rows.sorted { $0.transaction.date < $1.transaction.date }
-        case .amountDesc: return rows.sorted { $0.transaction.amount > $1.transaction.amount }
-        case .amountAsc: return rows.sorted { $0.transaction.amount < $1.transaction.amount }
+        // By size, not by sign. Positive is money out and negative is money in,
+        // so ordering on the raw value filed the largest deposits under
+        // "Smallest first" — the opposite of what the label promises.
+        case .amountDesc: return rows.sorted { abs($0.transaction.amount) > abs($1.transaction.amount) }
+        case .amountAsc: return rows.sorted { abs($0.transaction.amount) < abs($1.transaction.amount) }
         }
     }
 }
