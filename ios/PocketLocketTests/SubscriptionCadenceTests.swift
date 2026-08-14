@@ -80,4 +80,44 @@ final class SubscriptionCadenceTests: XCTestCase {
         let result = SubscriptionsView.Sub.classify(dates: dates, amount: 9.99, dataHorizonDays: 400, now: now)
         XCTAssertTrue(result.isStale)
     }
+
+    /// Two gaps have no meaningful median. Quarterly billing with one skipped
+    /// cycle (91 and 182 days) averaged to 136.5 and was confidently reported
+    /// as semiannual, halving the monthly equivalent.
+    func testQuarterlyWithOneSkippedCycleIsNotReadAsSemiannual() {
+        let now = Date()
+        let dates = [182 + 91, 182, 0].map { date(daysAgo: Double($0), from: now) }
+        let result = SubscriptionsView.Sub.classify(dates: dates, amount: 30, dataHorizonDays: 400, now: now)
+        XCTAssertEqual(result.cadence, .quarterly)
+    }
+
+    /// Two gaps that are not a multiple of each other are genuinely irregular
+    /// rather than confidently bucketed.
+    func testTwoDisagreeingGapsAreIrregular() {
+        let now = Date()
+        // Gaps of 40 and 100 days: 100 is not a whole multiple of 40.
+        let dates = [200, 160, 60].map { date(daysAgo: Double($0), from: now) }
+        let result = SubscriptionsView.Sub.classify(dates: dates, amount: 30, dataHorizonDays: 400, now: now)
+        XCTAssertEqual(result.cadence, .irregular)
+    }
+
+    /// The span between n charges holds n-1 renewal intervals. Counting n
+    /// overstated the rate by 50% for three charges.
+    func testIrregularRateUsesIntervalsNotChargeCount() {
+        let now = Date()
+        // Gaps of 30 and 100 days over a 130-day span: two intervals, not three.
+        let dates = [180, 150, 50].map { date(daysAgo: Double($0), from: now) }
+        let result = SubscriptionsView.Sub.classify(dates: dates, amount: 60, dataHorizonDays: 400, now: now)
+        XCTAssertEqual(result.cadence, .irregular)
+        XCTAssertEqual(result.monthlyEquivalent, 60 * 2 / 130 * 30.44, accuracy: 0.01)
+    }
+
+    /// An irregular merchant that stopped charging long ago used to be pinned
+    /// into "Estimated monthly" forever, because that path hard-coded false.
+    func testLapsedIrregularSubscriptionGoesStale() {
+        let now = Date()
+        let dates = [900, 800, 700, 300].map { date(daysAgo: Double($0), from: now) }
+        let result = SubscriptionsView.Sub.classify(dates: dates, amount: 60, dataHorizonDays: 1000, now: now)
+        XCTAssertTrue(result.isStale)
+    }
 }

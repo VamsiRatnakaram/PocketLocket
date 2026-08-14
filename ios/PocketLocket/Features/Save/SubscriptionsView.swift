@@ -110,6 +110,17 @@ struct SubscriptionsView: View {
                 }
             }
 
+            /// Charges per unit time, converted to a monthly rate.
+            ///
+            /// The span between `n` charges contains `n - 1` renewal intervals,
+            /// not `n`. Dividing the full `n × amount` by the span overstated
+            /// the rate by 50% for three charges and 100% for two.
+            func irregularMonthlyRate(_ sorted: [Date], amount: Double, dayLength: TimeInterval) -> Double {
+                let spanDays = sorted.last!.timeIntervalSince(sorted.first!) / dayLength
+                guard spanDays > 0, sorted.count > 1 else { return amount }
+                return amount * Double(sorted.count - 1) / spanDays * 30.44
+            }
+
             func stale(expectedIntervalDays: Double) -> Bool {
                 now.timeIntervalSince(sorted.last ?? now) / dayLength > expectedIntervalDays * 2.5
             }
@@ -127,14 +138,41 @@ struct SubscriptionsView: View {
                 let mad = deviations.count % 2 == 1
                     ? deviations[deviations.count / 2]
                     : (deviations[deviations.count / 2 - 1] + deviations[deviations.count / 2]) / 2
+                // Two gaps have no meaningful median: an average of two
+                // numbers that disagree is a value neither of them supports.
+                // Quarterly billing with one skipped cycle (91 and 182 days)
+                // averaged to 136.5 and was confidently reported as
+                // semiannual, halving the merchant's monthly equivalent. When
+                // the longer gap is close to a whole multiple of the shorter
+                // one, the shorter gap is the real cadence and the long gap is
+                // the skipped cycles.
+                if gaps.count == 2 {
+                    let short = min(gaps[0], gaps[1])
+                    let long = max(gaps[0], gaps[1])
+                    if short > 0 {
+                        let multiple = long / short
+                        let nearest = multiple.rounded()
+                        if nearest >= 1, abs(multiple - nearest) <= 0.15 {
+                            let cadence = bucket(short)
+                            return (cadence, .confirmed, amount * cadence.periodsPerYear / 12,
+                                    stale(expectedIntervalDays: short))
+                        }
+                    }
+                    return (.irregular, .likely, irregularMonthlyRate(sorted, amount: amount, dayLength: dayLength),
+                            stale(expectedIntervalDays: long))
+                }
+
                 if median > 0 && mad / median > 0.5 {
                     // Gaps are too inconsistent for any single cadence to be
                     // honest — estimate a monthly rate from the total charged
                     // over the observed span instead of picking a bucket.
-                    let spanDays = sorted.last!.timeIntervalSince(sorted.first!) / dayLength
-                    let totalCharged = amount * Double(sorted.count) // approximation; display uses latest amount
-                    let rate = spanDays > 0 ? totalCharged / spanDays * 30.44 : amount
-                    return (.irregular, .confirmed, rate, false)
+                    // Staleness still applies: an irregular merchant that
+                    // stopped charging a year ago was previously pinned into
+                    // "Estimated monthly" forever, because this path hard-coded
+                    // `false`.
+                    return (.irregular, .confirmed,
+                            irregularMonthlyRate(sorted, amount: amount, dayLength: dayLength),
+                            stale(expectedIntervalDays: median))
                 }
                 let cadence = bucket(median)
                 return (cadence, .confirmed, amount * cadence.periodsPerYear / 12, stale(expectedIntervalDays: median))
@@ -205,7 +243,14 @@ struct SubscriptionsView: View {
         // Stale subscriptions are shown (so the user can see/remove them from
         // tracking) but excluded from the headline total — a cancelled
         // service shouldn't permanently inflate "Estimated monthly".
-        subscriptions.filter { !$0.isStale }.reduce(0) { $0 + $1.monthlyEquivalent }
+        // `.assumed` rows are a single charge with no observed interval, so
+        // their cadence is a guess. A $119.88 annual plan seen once was
+        // guessed monthly and added $119.88 to the headline every month. The
+        // row still shows its estimate; it just doesn't get to claim a place
+        // in the total until a second charge proves the cadence.
+        subscriptions
+            .filter { !$0.isStale && $0.confidence != .assumed }
+            .reduce(0) { $0 + $1.monthlyEquivalent }
     }
 
     var body: some View {
@@ -220,7 +265,7 @@ struct SubscriptionsView: View {
                             .fontWeight(.semibold)
                     }
                 } footer: {
-                    Text("Estimated from recurring charges over the last 13 months. Yearly/quarterly plans are shown as a monthly equivalent; plans seen only once are estimated, and lapsed subscriptions are excluded from the total.")
+                    Text("Estimated from recurring charges over the last 13 months. Yearly/quarterly plans are shown as a monthly equivalent; plans seen only once are estimated and are left out of the total until a second charge confirms the cadence, and lapsed subscriptions are excluded too.")
                 }
 
                 Section {
