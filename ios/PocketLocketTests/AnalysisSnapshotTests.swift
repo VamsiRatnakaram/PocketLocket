@@ -51,6 +51,21 @@ final class AnalysisSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.availableCategories.contains(.food), "availableCategories stays unfiltered")
     }
 
+    /// The chart and averages list render *above* the category chips, so
+    /// resizing them on filter change moved the chips out from under the tap
+    /// that triggered it. They must stay identical across filters.
+    func testFilterLeavesChartAndAveragesUnchanged() {
+        let unfiltered = AnalysisSnapshot.make(inputs: sample, categoryFilter: nil)
+        let filtered = AnalysisSnapshot.make(inputs: sample, categoryFilter: .groceries)
+
+        XCTAssertEqual(filtered.categoryAverages.map(\.id), unfiltered.categoryAverages.map(\.id))
+        XCTAssertEqual(filtered.categoryMonthly.count, unfiltered.categoryMonthly.count)
+        XCTAssertTrue(
+            filtered.categoryMonthly.contains { $0.category == .food },
+            "The chart keeps every category's line so its height can't change"
+        )
+    }
+
     func testEmptyInputsProduceEmptySnapshot() {
         XCTAssertTrue(AnalysisSnapshot.make(inputs: [], categoryFilter: nil).isEmpty)
     }

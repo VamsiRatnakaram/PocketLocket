@@ -47,8 +47,14 @@ struct AnalysisSnapshot: Sendable {
             recurring: MerchantAnalytics.recurringMerchants(
                 filteredInputs, minMonths: minRecurringMonths, stats: filteredStats
             ),
-            categoryAverages: MerchantAnalytics.categoryAverages(filteredInputs),
-            categoryMonthly: MerchantAnalytics.categoryMonthlyTotals(filteredInputs)
+            // Deliberately unfiltered. These two drive the chart and the
+            // averages list, which render *above* the category chips — letting
+            // the filter resize them meant tapping a chip collapsed the chart
+            // to a single line, shrank the list, and yanked the chip row out
+            // from under your finger. The filter scopes the merchant sections
+            // below it; the chart has its own tap-to-hide legend for focus.
+            categoryAverages: MerchantAnalytics.categoryAverages(inputs),
+            categoryMonthly: MerchantAnalytics.categoryMonthlyTotals(inputs)
         )
     }
 }
