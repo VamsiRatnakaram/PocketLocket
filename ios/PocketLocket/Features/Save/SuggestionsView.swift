@@ -59,12 +59,24 @@ struct SuggestionsView: View {
         }
     }
 
-    private var suggestions: [SavingsSuggestion] {
-        SavingsAdvisor.suggestions(
-            inputs(monthTransactions),
-            previous: inputs(previousMonthTransactions),
-            monthlyBudget: monthlyBudget
+    private var suggestionsKey: SavingsSuggestionsCache.InputsKey {
+        SavingsSuggestionsCache.InputsKey(
+            dataHash: RecordHash.transactions(transactions),
+            rulesHash: RecordHash.rules(rules),
+            excludedAccountsRaw: excludedAccountsRaw,
+            monthlyBudget: monthlyBudget,
+            monthStart: Calendar.current.dateInterval(of: .month, for: Date())?.start
         )
+    }
+
+    private var suggestions: [SavingsSuggestion] {
+        SavingsSuggestionsCache.shared.suggestions(for: suggestionsKey) {
+            SavingsAdvisor.suggestions(
+                inputs(monthTransactions),
+                previous: inputs(previousMonthTransactions),
+                monthlyBudget: monthlyBudget
+            )
+        }
     }
 
     private var questionTransactions: [TransactionRecord] {
@@ -75,12 +87,16 @@ struct SuggestionsView: View {
         }.prefix(120))
     }
 
-    private var potentialMonthly: Double {
+    private func potentialMonthly(_ suggestions: [SavingsSuggestion]) -> Double {
         suggestions.compactMap(\.monthlyImpact).reduce(0, +)
     }
 
     var body: some View {
-        ScrollView {
+        // Resolved once per render and threaded through. Read as a computed
+        // property it re-hashed every transaction on each access, and `body`
+        // touched it four times.
+        let suggestions = self.suggestions
+        return ScrollView {
                 if questionTransactions.isEmpty {
                     VStack(spacing: 0) {
                         segmentPicker
@@ -95,7 +111,7 @@ struct SuggestionsView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         segmentPicker
-                        if !suggestions.isEmpty { header }
+                        if !suggestions.isEmpty { header(suggestions) }
                         aiCard
                         if !suggestions.isEmpty {
                             Text("Ways to save")
@@ -230,7 +246,7 @@ struct SuggestionsView: View {
         Task { await ai.ask(question: submitted, transactionContext: context) }
     }
 
-    private var header: some View {
+    private func header(_ suggestions: [SavingsSuggestion]) -> some View {
         VStack(spacing: 8) {
             Image(systemName: "leaf.fill")
                 .font(.title3)
@@ -238,7 +254,7 @@ struct SuggestionsView: View {
             Text("Potential savings")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
-            Text(CurrencyFormatter.string(potentialMonthly))
+            Text(CurrencyFormatter.string(potentialMonthly(suggestions)))
                 .font(.system(.largeTitle, design: .rounded).weight(.bold))
                 .monospacedDigit()
                 .contentTransition(.numericText())
