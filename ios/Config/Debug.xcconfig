@@ -1,4 +1,13 @@
 // Debug build configuration.
+
+// Signing team, overridable per machine.
+//
+// Deliberately here and not in project.yml: a project-level build setting beats
+// a project xcconfig, so putting DEVELOPMENT_TEAM there made the documented
+// Secrets.xcconfig override silently do nothing. Secrets.xcconfig is included
+// *after* this default so a local value wins.
+DEVELOPMENT_TEAM = ABCDE12345
+
 #include? "Secrets.xcconfig"
 
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG
