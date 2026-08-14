@@ -1,6 +1,25 @@
 import Foundation
 import SwiftData
 
+/// A `CategoryRule` reduced to plain values.
+///
+/// `CategoryRule` is a SwiftData `@Model` and therefore bound to its
+/// `ModelContext` — it can't be handed to a background executor. Extract these
+/// on the main thread instead and pass them across.
+struct CategoryRuleSpec: Sendable, Hashable {
+    let matchText: String
+    let category: SpendCategory
+
+    init(matchText: String, category: SpendCategory) {
+        self.matchText = matchText
+        self.category = category
+    }
+
+    init(rule: CategoryRule) {
+        self.init(matchText: rule.matchText, category: rule.category)
+    }
+}
+
 struct CategoryRuleIndex {
     private struct Entry {
         let tokens: [String]
@@ -10,7 +29,11 @@ struct CategoryRuleIndex {
     private let entries: [Entry]
 
     init(rules: [CategoryRule]) {
-        entries = rules.map {
+        self.init(specs: rules.map(CategoryRuleSpec.init(rule:)))
+    }
+
+    init(specs: [CategoryRuleSpec]) {
+        entries = specs.map {
             Entry(tokens: MerchantHeuristics.tokens(in: $0.matchText), category: $0.category)
         }
     }
@@ -47,9 +70,20 @@ enum CategoryResolver {
         plaidPrimary: String?,
         rules: [CategoryRule]
     ) -> SpendCategory {
+        resolve(name: name, merchant: merchant, plaidPrimary: plaidPrimary, index: ruleIndex(for: rules))
+    }
+
+    /// Same resolution, but against a pre-built rule index instead of live
+    /// SwiftData models — usable off the main thread (see `CategoryRuleSpec`).
+    static func resolve(
+        name: String,
+        merchant: String?,
+        plaidPrimary: String?,
+        index: CategoryRuleIndex
+    ) -> SpendCategory {
         let haystack = ((merchant ?? "") + " " + name).lowercased()
 
-        if let ruleCategory = ruleIndex(for: rules).category(for: haystack) {
+        if let ruleCategory = index.category(for: haystack) {
             return ruleCategory
         }
         if let providerCategory = CategoryMapper.recognizedCategory(primary: plaidPrimary) {
@@ -83,6 +117,16 @@ enum CategoryResolver {
 
 @MainActor
 enum CategoryAssignment {
+    /// How far a category choice should reach.
+    enum Scope {
+        /// Applies to this transaction alone, leaving every other transaction
+        /// from the same merchant untouched.
+        case thisTransactionOnly
+        /// Teaches a rule so every transaction matching the merchant descriptor
+        /// is categorized this way, now and in future syncs.
+        case allMatching
+    }
+
     static func matchKey(for transaction: TransactionRecord) -> String {
         let descriptor = transaction.merchantName ?? transaction.name
         let cleaned = MerchantHeuristics.ruleMatchText(for: descriptor)
@@ -93,13 +137,25 @@ enum CategoryAssignment {
         _ category: SpendCategory,
         to transactions: [TransactionRecord],
         using rules: [CategoryRule],
-        in context: ModelContext
+        in context: ModelContext,
+        scope: Scope = .allMatching
     ) throws {
+        guard scope == .allMatching else {
+            for transaction in transactions {
+                transaction.categoryOverride = category
+            }
+            try context.save()
+            return
+        }
+
         var rulesByKey = rules.reduce(into: [String: CategoryRule]()) { result, rule in
             result[rule.matchText] = rule
         }
 
         for transaction in transactions {
+            // A stale per-transaction override would outrank the rule being
+            // taught here, so the choice would appear not to take effect.
+            transaction.categoryOverride = nil
             let key = matchKey(for: transaction)
             if let existing = rulesByKey[key] {
                 existing.categoryRaw = category.rawValue
@@ -114,13 +170,17 @@ enum CategoryAssignment {
 }
 
 extension TransactionRecord {
-    /// The category after applying user rules, heuristics, then Plaid mapping.
+    /// The category after applying a per-transaction override, then user rules,
+    /// a confirmed transfer pair, heuristics, and finally the provider mapping.
     ///
-    /// A confirmed transfer pair outranks both the provider category and the
-    /// descriptor heuristics — we can see the money land in another of your
-    /// accounts, which is far better evidence than any keyword. User rules
-    /// still win, so a pair can be overridden if the match is ever wrong.
+    /// The override is first because it's the most specific statement the user
+    /// can make — it's about this transaction and nothing else. A matched
+    /// transfer pair then outranks the provider category and the descriptor
+    /// heuristics, since seeing the money land in another of your accounts is
+    /// far better evidence than any keyword, but it still yields to an explicit
+    /// user rule so a wrong match can be corrected.
     func resolvedCategory(using rules: [CategoryRule]) -> SpendCategory {
+        if let categoryOverride { return categoryOverride }
         if transferPairId != nil,
            CategoryResolver.userRuleCategory(name: name, merchant: merchantName, rules: rules) == nil {
             return .transfer

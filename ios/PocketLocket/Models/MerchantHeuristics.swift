@@ -320,6 +320,21 @@ enum MerchantHeuristics {
         return nil
     }
 
+    /// Peer-to-peer payment apps, where the descriptor names the platform but
+    /// says nothing about what the money was for.
+    ///
+    /// These are classified as transfers by default, which is right for
+    /// repaying a friend and wrong for covering your half of dinner — and the
+    /// same descriptor produces both. Callers use this to default a category
+    /// choice to "this transaction only", because a merchant-wide rule keyed on
+    /// "venmo" would be a guess applied to every past and future Venmo.
+    static let peerToPeerKeywords = ["venmo", "zelle", "cash app", "cashapp", "paypal", "apple cash"]
+
+    static func isPeerToPeer(_ descriptor: String) -> Bool {
+        let descriptorTokens = tokens(in: descriptor)
+        return peerToPeerKeywords.contains { contains(tokens(in: $0), in: descriptorTokens) }
+    }
+
     static func category(for haystack: String) -> SpendCategory? {
         let cacheKey = normalized(haystack)
         if let cached = cache[cacheKey] {
