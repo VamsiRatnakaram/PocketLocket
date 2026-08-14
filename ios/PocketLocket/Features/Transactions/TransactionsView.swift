@@ -39,14 +39,6 @@ struct TransactionsView: View {
         case amountDesc = "Largest first"
         case amountAsc = "Smallest first"
         var id: String { rawValue }
-        var symbol: String {
-            switch self {
-            case .dateDesc: return "arrow.down"
-            case .dateAsc: return "arrow.up"
-            case .amountDesc: return "arrow.down.circle"
-            case .amountAsc: return "arrow.up.circle"
-            }
-        }
     }
 
     private var periodInterval: DateInterval? {
@@ -93,8 +85,11 @@ struct TransactionsView: View {
         switch sortOrder {
         case .dateDesc: return filtered.sorted { $0.date > $1.date }
         case .dateAsc: return filtered.sorted { $0.date < $1.date }
-        case .amountDesc: return filtered.sorted { $0.amount > $1.amount }
-        case .amountAsc: return filtered.sorted { $0.amount < $1.amount }
+        // By size, not by sign. Positive is money out and negative is money
+        // in, so ordering on the raw value filed the largest deposits under
+        // "Smallest first" — the opposite of what the label promises.
+        case .amountDesc: return filtered.sorted { abs($0.amount) > abs($1.amount) }
+        case .amountAsc: return filtered.sorted { abs($0.amount) < abs($1.amount) }
         }
     }
 
@@ -299,13 +294,17 @@ struct TransactionsView: View {
                         }
                     }
                 }
-                Menu("Sort") {
+                // An inline Picker, not Buttons: it draws the system's own
+                // selection checkmark. Swapping each option's icon for a
+                // checkmark when selected meant the icon column carried two
+                // different meanings at once, and the arrows it swapped out
+                // read as directions rather than as sort orders.
+                Picker("Sort", selection: $sortOrder) {
                     ForEach(SortOrder.allCases) { option in
-                        Button { sortOrder = option } label: {
-                            Label(option.rawValue, systemImage: sortOrder == option ? "checkmark" : option.symbol)
-                        }
+                        Text(option.rawValue).tag(option)
                     }
                 }
+                .pickerStyle(.inline)
                 if hasActiveFilters {
                     Divider()
                     Button(role: .destructive) {
