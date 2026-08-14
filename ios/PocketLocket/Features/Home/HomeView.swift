@@ -256,8 +256,9 @@ struct HomeView: View {
                 }
                 .pickerStyle(.inline)
             } label: {
-                Image(systemName: "circle.dashed")
+                Image(systemName: ringStyle.symbol)
             }
+            .accessibilityLabel("Ring style: \(ringStyle.label)")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
