@@ -5,12 +5,12 @@ import SwiftData
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @Query(sort: \TransactionRecord.date, order: .forward) private var allTransactions: [TransactionRecord]
 
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage("ringStyle") private var ringStyleRaw: String = RingStyle.donut.rawValue
     @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.system.rawValue
     @State private var simplefinConnected = false
+    @State private var earliestSyncedDate: Date?
     @State private var showSimpleFIN = false
     @State private var showBackup = false
     @State private var showDisconnectConfirmation = false
@@ -128,6 +128,7 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showBackup) { BackupView() }
             .onAppear { simplefinConnected = SimpleFINStore.isConnected }
+            .task { earliestSyncedDate = loadEarliestSyncedDate() }
             .confirmationDialog(
                 "Disconnect SimpleFIN?",
                 isPresented: $showDisconnectConfirmation,
@@ -161,13 +162,25 @@ struct SettingsView: View {
     /// SimpleFIN/your bank is providing more history than what's currently
     /// visible — the app always requests 24 months, but each bank's own
     /// feed decides how far back it actually returns.
+    /// One row, fetched once when Settings opens.
+    ///
+    /// A `@Query` here loaded and retained every transaction on file — sorted,
+    /// unfiltered, and refreshed on every change — just to read a single date,
+    /// and did it even when SimpleFIN was never connected.
+    private func loadEarliestSyncedDate() -> Date? {
+        var descriptor = FetchDescriptor<TransactionRecord>(
+            predicate: #Predicate { $0.accountId?.starts(with: "sf-") ?? false },
+            sortBy: [SortDescriptor(\TransactionRecord.date, order: .forward)]
+        )
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first?.date
+    }
+
     private var earliestDataText: String? {
         // Only consider SimpleFIN-synced transactions (accountId prefixed "sf-"),
         // not manually-entered or CSV-imported records, so this reflects what the
         // bank's own feed actually returned rather than any back-dated manual entry.
-        guard let earliest = allTransactions
-            .first(where: { $0.accountId?.hasPrefix("sf-") == true })?.date
-        else { return nil }
+        guard let earliest = earliestSyncedDate else { return nil }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         let months = max(0, Calendar.current.dateComponents([.month], from: earliest, to: Date()).month ?? 0)
