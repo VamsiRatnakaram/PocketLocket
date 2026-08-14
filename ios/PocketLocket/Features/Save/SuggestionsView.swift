@@ -95,6 +95,7 @@ struct SuggestionsView: View {
                             ForEach(suggestions) { SuggestionCard(suggestion: $0) }
                         }
                     }
+                    .glassSurfaceGroup()
                     .padding()
                 }
             }
@@ -191,7 +192,7 @@ struct SuggestionsView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .glassSurface()
     }
 
     private func markdown(_ string: String) -> AttributedString {
@@ -243,10 +244,7 @@ struct SuggestionsView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.secondarySystemBackground))
-        )
+        .glassSurface(cornerRadius: 20)
     }
 }
 
@@ -285,6 +283,6 @@ struct SuggestionCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .glassSurface()
     }
 }
