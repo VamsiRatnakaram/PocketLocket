@@ -38,7 +38,8 @@ enum TransferMatchService {
                     id: txn.id,
                     accountId: accountId,
                     amount: txn.amount,
-                    date: txn.date
+                    date: txn.date,
+                    currency: txn.isoCurrencyCode
                 )
             }
             matches = TransferMatcher.match(candidates: candidates, transferAccountIds: transferAccountIds)

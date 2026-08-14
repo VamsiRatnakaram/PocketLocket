@@ -15,6 +15,11 @@ final class TransferMatcherTests: XCTestCase {
         TransferMatcher.Candidate(id: id, accountId: account, amount: amount, date: day(dayOffset))
     }
 
+    private func candidate(_ id: String, _ account: String, _ amount: Double, _ dayOffset: Int, currency: String)
+        -> TransferMatcher.Candidate {
+        TransferMatcher.Candidate(id: id, accountId: account, amount: amount, date: day(dayOffset), currency: currency)
+    }
+
     /// The core case: a bank debit whose descriptor gives nothing away, paired
     /// to the card credit purely by the balancing amount.
     func testMatchesCardPayoffAcrossAccounts() {
@@ -199,5 +204,50 @@ final class TransferMatcherTests: XCTestCase {
         XCTAssertTrue(TransferMatcher.isTransferAccountType("Credit"))
         XCTAssertFalse(TransferMatcher.isTransferAccountType("depository"))
         XCTAssertFalse(TransferMatcher.isTransferAccountType(nil))
+    }
+
+    /// Numerically equal amounts in different currencies are not the two halves
+    /// of anything; pairing them would drop real spending out of the budget.
+    func testDoesNotMatchAcrossCurrencies() {
+        let matches = TransferMatcher.match(
+            candidates: [
+                candidate("out", checking, 500, 0, currency: "EUR"),
+                candidate("in", card, -500, 1, currency: "USD"),
+            ],
+            transferAccountIds: [card]
+        )
+        XCTAssertTrue(matches.isEmpty)
+    }
+
+    /// A card purchase and an unrelated equal deposit into checking share an
+    /// amount and a week, but money never moved between the two. Requiring the
+    /// credit/loan account to hold the *inflow* leg rejects it.
+    func testDoesNotMatchCardPurchaseAgainstCheckingDeposit() {
+        let matches = TransferMatcher.match(
+            candidates: [
+                candidate("card-purchase", card, 500, 0),
+                candidate("checking-deposit", checking, -500, 1),
+            ],
+            transferAccountIds: [card]
+        )
+        XCTAssertTrue(matches.isEmpty)
+    }
+
+    /// Taking the globally closest edge first strands the day-7 payment outside
+    /// the window of the only inflow left over. Maximum matching re-homes the
+    /// day-0 payment so both payoffs are recognized.
+    func testGreedyClosestPairDoesNotStrandASecondPayoff() {
+        let matches = TransferMatcher.match(
+            candidates: [
+                candidate("out-a", checking, 500, 0),
+                candidate("out-b", checking, 500, 7),
+                candidate("in-a", card, -500, 1),
+                candidate("in-b", card, -500, -8),
+            ],
+            transferAccountIds: [card]
+        )
+        XCTAssertEqual(matches.count, 4, "both payoffs should pair")
+        XCTAssertEqual(matches["out-b"], matches["in-a"])
+        XCTAssertEqual(matches["out-a"], matches["in-b"])
     }
 }

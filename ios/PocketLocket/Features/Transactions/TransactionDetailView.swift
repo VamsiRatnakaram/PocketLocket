@@ -71,6 +71,16 @@ struct TransactionDetailView: View {
     /// about the user's own money moving between their accounts, so it should
     /// name its evidence rather than silently removing the transaction from the
     /// budget.
+    /// The match only keeps a transaction out of the budget while nothing the
+    /// user chose outranks it. Saying "kept out of your budget" unconditionally
+    /// contradicted the category shown right above it once a rule or a
+    /// per-transaction override put the money back into spending.
+    private var transferBudgetNote: String {
+        currentCategory == .transfer
+            ? "Kept out of your budget so it doesn't double up with the purchases it covers."
+            : "You've categorized it as \(currentCategory.displayName), so it still counts toward your budget."
+    }
+
     @ViewBuilder
     private var transferMatchNote: some View {
         if let counterpart {
@@ -83,7 +93,7 @@ struct TransactionDetailView: View {
                     Text("A matching \(CurrencyFormatter.string(abs(counterpart.amount), code: counterpart.isoCurrencyCode)) "
                         + "\(txn.amount > 0 ? "credit" : "payment") \(counterpartAccountName) "
                         + "on \(counterpart.date.formatted(.dateTime.month().day())). "
-                        + "Kept out of your budget so it doesn't double up with the purchases it covers.")
+                        + transferBudgetNote)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
