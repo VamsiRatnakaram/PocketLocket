@@ -6,6 +6,10 @@ import Charts
 /// category trends — "how many times have I eaten here", "average grocery
 /// spend", "businesses I frequent" — computed entirely on-device.
 struct AnalysisView: View {
+    /// Rendered at the top of the scroll content so it scrolls away, rather
+    /// than being pinned above this view by the parent.
+    var segmentPicker: AnalysisSegmentPicker?
+
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
@@ -100,14 +104,20 @@ struct AnalysisView: View {
         Group {
                 if let snapshot = coordinator.snapshot {
                     if snapshot.isEmpty {
-                        ContentUnavailableView {
-                            Label("No trends yet", systemImage: "chart.line.uptrend.xyaxis")
-                        } description: {
-                            Text("Connect an account or import a statement to see merchant and category trends.")
+                        // Nothing to scroll, so the picker has to be stacked
+                        // above the state rather than riding the content.
+                        VStack(spacing: 0) {
+                            pickerRow
+                            ContentUnavailableView {
+                                Label("No trends yet", systemImage: "chart.line.uptrend.xyaxis")
+                            } description: {
+                                Text("Connect an account or import a statement to see merchant and category trends.")
+                            }
                         }
                     } else {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 24) {
+                                segmentPicker
                                 rangePicker
                                 categorySpendChart(snapshot)
                                 categoryAveragesList(snapshot)
@@ -124,8 +134,11 @@ struct AnalysisView: View {
                 } else {
                     // First load only — never the empty state, which would be a
                     // lie while the computation is still running.
-                    ProgressView("Analyzing your spending…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 0) {
+                        pickerRow
+                        ProgressView("Analyzing your spending…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
             }
             .onChange(of: request, initial: true) { _, newRequest in
@@ -139,6 +152,15 @@ struct AnalysisView: View {
             .navigationDestination(item: $selectedCategory) { category in
                 AnalysisCategoryDetailView(category: category, transactions: scoped, rules: rules)
             }
+    }
+
+    @ViewBuilder
+    private var pickerRow: some View {
+        if let segmentPicker {
+            segmentPicker
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+        }
     }
 
     private var rangePicker: some View {

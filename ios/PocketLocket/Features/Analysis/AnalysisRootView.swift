@@ -16,28 +16,31 @@ struct AnalysisRootView: View {
         // drill-down -- offering to switch to Save from inside a category
         // detail, and stealing a row of height from every pushed screen.
         NavigationStack {
-            Group {
-                switch segment {
-                case .analysis: AnalysisView()
-                case .save: SuggestionsView()
-                }
-            }
-            // A safe-area inset rather than a VStack row: stacked above the
-            // content, the picker sat on bare background with nothing marking
-            // where it ended, so scrolling ran the content straight into it.
-            // As an inset it stays pinned, the content scrolls *under* it, and
-            // it carries the same material and hairline as a toolbar.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Picker("View", selection: $segment) {
-                    Text("Analysis").tag(Segment.analysis)
-                    Text("Save").tag(Segment.save)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
-                .overlay(alignment: .bottom) { Divider() }
+            // The picker is handed to the child rather than stacked above it so
+            // it rides at the top of the child's *scroll content*. Stacked
+            // above, it stayed on screen forever, eating a row of height on a
+            // tab that is mostly a long scroll -- and sat on bare background
+            // with nothing marking where it ended.
+            switch segment {
+            case .analysis: AnalysisView(segmentPicker: picker)
+            case .save: SuggestionsView(segmentPicker: picker)
             }
         }
+    }
+
+    private var picker: AnalysisSegmentPicker { AnalysisSegmentPicker(segment: $segment) }
+}
+
+/// Concrete (rather than a generic header parameter) so the children can hold
+/// it in a plain optional stored property.
+struct AnalysisSegmentPicker: View {
+    @Binding var segment: AnalysisRootView.Segment
+
+    var body: some View {
+        Picker("View", selection: $segment) {
+            Text("Analysis").tag(AnalysisRootView.Segment.analysis)
+            Text("Save").tag(AnalysisRootView.Segment.save)
+        }
+        .pickerStyle(.segmented)
     }
 }

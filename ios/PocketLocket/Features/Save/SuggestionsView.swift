@@ -3,6 +3,10 @@ import SwiftData
 
 /// The "Save" tab — data-driven suggestions for where and how to save money.
 struct SuggestionsView: View {
+    /// Rendered at the top of the scroll content so it scrolls away, rather
+    /// than being pinned above this view by the parent.
+    var segmentPicker: AnalysisSegmentPicker?
+
     @Query private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
@@ -12,7 +16,8 @@ struct SuggestionsView: View {
     @State private var submittedQuestion: String?
     @FocusState private var questionFocused: Bool
 
-    init() {
+    init(segmentPicker: AnalysisSegmentPicker? = nil) {
+        self.segmentPicker = segmentPicker
         let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date()) ?? .distantPast
         _transactions = Query(
             filter: #Predicate<TransactionRecord> { $0.date >= cutoff },
@@ -77,14 +82,19 @@ struct SuggestionsView: View {
     var body: some View {
         ScrollView {
                 if questionTransactions.isEmpty {
-                    ContentUnavailableView(
-                        "No suggestions yet",
-                        systemImage: "sparkles",
-                        description: Text("Connect an account or import a statement to get personalized ways to save.")
-                    )
-                    .padding(.top, 60)
+                    VStack(spacing: 0) {
+                        segmentPicker
+                            .padding(.horizontal)
+                        ContentUnavailableView(
+                            "No suggestions yet",
+                            systemImage: "sparkles",
+                            description: Text("Connect an account or import a statement to get personalized ways to save.")
+                        )
+                        .padding(.top, 60)
+                    }
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
+                        segmentPicker
                         if !suggestions.isEmpty { header }
                         aiCard
                         if !suggestions.isEmpty {
