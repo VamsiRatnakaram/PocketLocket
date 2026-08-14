@@ -30,6 +30,10 @@ struct RuleEditorView: View {
         matchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    private var matchKey: String {
+        CategoryRule.canonicalMatchText(trimmed)
+    }
+
     /// Transactions this rule would claim, so the effect of a wording change is
     /// visible before it is saved rather than discovered afterwards.
     private var matches: [TransactionRecord] {
@@ -120,7 +124,10 @@ struct RuleEditorView: View {
     private func save() {
         // matchText is a unique attribute, so a collision would trap on save
         // rather than surface as an error.
-        let clash = allRules.contains { $0.matchText == trimmed && $0.persistentModelID != rule?.persistentModelID }
+        let clash = allRules.contains {
+            CategoryRule.canonicalMatchText($0.matchText) == matchKey
+                && $0.persistentModelID != rule?.persistentModelID
+        }
         if clash {
             errorMessage = "Another rule already matches “\(trimmed)”. Edit or delete that one instead."
             return

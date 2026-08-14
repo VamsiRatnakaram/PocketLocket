@@ -86,6 +86,13 @@ final class CategoryResolverTests: XCTestCase {
         XCTAssertEqual(category, .groceries)
     }
 
+    func testCanonicalRuleTextMatchesResolverNormalization() {
+        XCTAssertEqual(
+            CategoryRule.canonicalMatchText("Café's-Market"),
+            CategoryRule.canonicalMatchText("cafés market")
+        )
+    }
+
     func testFallsBackToPlaidWhenNoRuleOrHeuristic() {
         let category = CategoryResolver.resolve(
             name: "Blorp 4211",
