@@ -40,14 +40,6 @@ struct TransactionsView: View {
         case amountDesc = "Largest first"
         case amountAsc = "Smallest first"
         var id: String { rawValue }
-        var symbol: String {
-            switch self {
-            case .dateDesc: return "arrow.down"
-            case .dateAsc: return "arrow.up"
-            case .amountDesc: return "arrow.down.circle"
-            case .amountAsc: return "arrow.up.circle"
-            }
-        }
     }
 
     private var periodInterval: DateInterval? {
@@ -154,6 +146,7 @@ struct TransactionsView: View {
             }
             .listStyle(.plain)
             .navigationTitle("Transactions")
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search merchants")
             .safeAreaInset(edge: .top) {
                 if !isSelecting { typeBar }
@@ -176,8 +169,11 @@ struct TransactionsView: View {
                         Button { showAdd = true } label: { Image(systemName: "plus") }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Select") { isSelecting = true }
-                            .disabled(rows.isEmpty)
+                        Button { isSelecting = true } label: {
+                            Image(systemName: "checklist")
+                        }
+                        .accessibilityLabel("Select transactions")
+                        .disabled(rows.isEmpty)
                     }
                 }
             }
@@ -314,13 +310,17 @@ struct TransactionsView: View {
                         }
                     }
                 }
-                Menu("Sort") {
+                // An inline Picker, not Buttons: it draws the system's own
+                // selection checkmark. Swapping each option's icon for a
+                // checkmark when selected meant the icon column carried two
+                // different meanings at once, and the arrows it swapped out
+                // read as directions rather than as sort orders.
+                Picker("Sort", selection: $sortOrder) {
                     ForEach(SortOrder.allCases) { option in
-                        Button { sortOrder = option } label: {
-                            Label(option.rawValue, systemImage: sortOrder == option ? "checkmark" : option.symbol)
-                        }
+                        Text(option.rawValue).tag(option)
                     }
                 }
+                .pickerStyle(.inline)
                 if hasActiveFilters {
                     Divider()
                     Button(role: .destructive) {
