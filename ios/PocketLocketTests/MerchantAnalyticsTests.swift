@@ -162,4 +162,18 @@ final class MerchantAnalyticsTests: XCTestCase {
         let food = try? XCTUnwrap(averages.first { $0.category == .food })
         XCTAssertEqual(food?.averagePerMonth ?? 0, 10, accuracy: 0.001)
     }
+
+    func testCategoryAveragesIncludeInactiveMonthsBetweenFirstAndLastSpend() {
+        let calendar = Calendar(identifier: .gregorian)
+        let january = calendar.date(from: DateComponents(year: 2025, month: 1, day: 10))!
+        let december = calendar.date(from: DateComponents(year: 2025, month: 12, day: 10))!
+        let inputs = [
+            MerchantAnalytics.Input(title: "Gym", amount: 120, category: .health, date: january),
+            MerchantAnalytics.Input(title: "Cafe", amount: 12, category: .food, date: december),
+        ]
+
+        let averages = MerchantAnalytics.categoryAverages(inputs, calendar: calendar)
+        let health = try? XCTUnwrap(averages.first { $0.category == .health })
+        XCTAssertEqual(health?.averagePerMonth ?? 0, 10, accuracy: 0.001)
+    }
 }

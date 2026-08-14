@@ -228,7 +228,16 @@ enum MerchantAnalytics {
         // category appeared in. Dividing a category's total by its *present*
         // months reported a single $120 charge in a year as "$120/mo", and
         // left a category that stopped entirely looking flat instead of down.
-        let windowMonths = Set(monthly.map(\.monthStart)).sorted()
+        guard let firstMonth = monthly.first?.monthStart,
+              let lastMonth = monthly.last?.monthStart
+        else { return [] }
+        var windowMonths: [Date] = []
+        var month = firstMonth
+        while month <= lastMonth {
+            windowMonths.append(month)
+            guard let next = calendar.date(byAdding: .month, value: 1, to: month) else { break }
+            month = next
+        }
 
         var byCategory: [SpendCategory: [Date: Double]] = [:]
         for entry in monthly { byCategory[entry.category, default: [:]][entry.monthStart] = entry.amount }

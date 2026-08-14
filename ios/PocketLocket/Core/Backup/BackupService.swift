@@ -52,11 +52,13 @@ enum BackupService {
         var categoryDetailed: String?
         var logoURL: String?
         var accountId: String?
+        var categoryOverrideRaw: String?
         init(_ t: TransactionRecord) {
             id = t.id; plaidTransactionId = t.plaidTransactionId; name = t.name
             merchantName = t.merchantName; amount = t.amount; isoCurrencyCode = t.isoCurrencyCode
             date = t.date; pending = t.pending; categoryPrimary = t.categoryPrimary
             categoryDetailed = t.categoryDetailed; logoURL = t.logoURL; accountId = t.accountId
+            categoryOverrideRaw = t.categoryOverrideRaw
         }
     }
 
@@ -192,7 +194,8 @@ enum BackupService {
                 id: t.id, plaidTransactionId: t.plaidTransactionId, name: t.name,
                 merchantName: t.merchantName, amount: t.amount, isoCurrencyCode: t.isoCurrencyCode,
                 date: t.date, pending: t.pending, categoryPrimary: t.categoryPrimary,
-                categoryDetailed: t.categoryDetailed, logoURL: t.logoURL, accountId: t.accountId
+                categoryDetailed: t.categoryDetailed, logoURL: t.logoURL, accountId: t.accountId,
+                categoryOverrideRaw: t.categoryOverrideRaw
             ))
             insertedTxns += 1
         }
