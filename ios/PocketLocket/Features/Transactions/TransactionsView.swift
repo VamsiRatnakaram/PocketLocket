@@ -17,6 +17,7 @@ struct TransactionsView: View {
     @State private var showAdd = false
     @State private var editing: TransactionRecord?
     @State private var isSelecting = false
+    @State private var isRefreshing = false
     @State private var selectedTransactionIDs: Set<String> = []
     @State private var assignmentErrorMessage: String?
     @State private var syncErrorMessage: String?
@@ -72,6 +73,8 @@ struct TransactionsView: View {
     /// is active so a sync can't shift rows under an in-progress selection.
     private func refresh() async {
         guard !isSelecting else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
         do {
             try await SyncService.shared.refresh(context: context)
         } catch is CancellationError {
@@ -174,8 +177,13 @@ struct TransactionsView: View {
                         Button { showAdd = true } label: { Image(systemName: "plus") }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
+                        // The guard in `refresh()` only stops a sync starting
+                        // during a selection. Entering a selection during a
+                        // sync let rows shift underneath it just the same, so
+                        // selected transactions could vanish before the bulk
+                        // assignment ran.
                         Button("Select") { isSelecting = true }
-                            .disabled(sortedFiltered.isEmpty)
+                            .disabled(isRefreshing || sortedFiltered.isEmpty)
                     }
                 }
             }
