@@ -19,7 +19,12 @@ enum RecordHash {
             hasher.combine(txn.id)
             hasher.combine(txn.amount)
             hasher.combine(txn.date)
-            hasher.combine(txn.title)
+            // Both, not `title`. `title` collapses to `merchantName` whenever
+            // one is set, which would hide an edit to `name` — and `name`
+            // feeds both category resolution and search, so the cache would
+            // keep serving rows filtered and categorized off the old value.
+            hasher.combine(txn.name)
+            hasher.combine(txn.merchantName)
             hasher.combine(txn.categoryPrimary)
             hasher.combine(txn.accountId)
         }
