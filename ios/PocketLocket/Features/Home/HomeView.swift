@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var monthOffset = 0
     @State private var scope: Scope = .month
     @State private var selectedCategory: SpendCategory?
+    @State private var showExcluded = false
     @State private var summaryCache = DerivedCache<MonthKey, MonthSummary>()
 
     enum Scope: Hashable { case month, year }
@@ -85,7 +86,7 @@ struct HomeView: View {
         // the cache would cost more than the work it protects.
         let excluded = excludedAccountIds
         let monthTransactions = transactions.filter {
-            monthInterval.contains($0.date)
+            monthInterval.containsHalfOpen($0.date)
                 && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
         }
         let key = MonthKey(
@@ -130,6 +131,9 @@ struct HomeView: View {
                 SimpleFINConnectView { Task { await refresh() } }
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
+            .sheet(isPresented: $showExcluded) {
+                ExcludedTransactionsView(interval: monthInterval, periodLabel: monthTitle)
+            }
             .fileImporter(isPresented: $showImporter, allowedContentTypes: ImportService.allowedTypes) { result in
                 handleImport(result)
             }
@@ -159,6 +163,7 @@ struct HomeView: View {
                 ringSection(viewModel)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: monthOffset)
                 remainingLabel(summary)
+                excludedLabel(summary)
 
                 if viewModel.spends.isEmpty {
                     emptyState
@@ -255,6 +260,29 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// Says out loud how much money left your accounts this month without
+    /// landing in the budget. The ring silently drops transfers and card
+    /// payments, which makes a month impossible to reconcile against a
+    /// statement — this makes the gap visible and, more importantly, auditable
+    /// by tapping through to the exact transactions.
+    @ViewBuilder
+    private func excludedLabel(_ summary: MonthSummary) -> some View {
+        let viewModel = summary.viewModel
+        return Group { if viewModel.excludedTotal > 0 {
+            Button { showExcluded = true } label: {
+                HStack(spacing: 4) {
+                    Text("\(CurrencyFormatter.string(viewModel.excludedTotal)) not in budget")
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows the transfers and payments left out of this month's budget")
+        } }
     }
 
     @ViewBuilder
