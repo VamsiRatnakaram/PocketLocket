@@ -10,6 +10,8 @@ struct TransactionDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Query private var rules: [CategoryRule]
+    @Query private var allTransactions: [TransactionRecord]
+    @Query private var accounts: [AccountRecord]
 
     @State private var selected: SpendCategory
     @State private var feedback = 0
@@ -27,6 +29,7 @@ struct TransactionDetailView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     header
+                    transferMatchNote
                     categoryGrid
                 }
                 .padding()
@@ -62,6 +65,55 @@ struct TransactionDetailView: View {
                 .monospacedDigit()
                 .foregroundStyle(txn.amount > 0 ? Color.primary : Color.green)
         }
+    }
+
+    /// Explains *why* this was treated as a transfer. A matched pair is a claim
+    /// about the user's own money moving between their accounts, so it should
+    /// name its evidence rather than silently removing the transaction from the
+    /// budget.
+    /// The match only keeps a transaction out of the budget while nothing the
+    /// user chose outranks it. Saying "kept out of your budget" unconditionally
+    /// contradicted the category shown right above it once a rule or a
+    /// per-transaction override put the money back into spending.
+    private var transferBudgetNote: String {
+        currentCategory == .transfer
+            ? "Kept out of your budget so it doesn't double up with the purchases it covers."
+            : "You've categorized it as \(currentCategory.displayName), so it still counts toward your budget."
+    }
+
+    @ViewBuilder
+    private var transferMatchNote: some View {
+        if let counterpart {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "arrow.left.arrow.right.circle.fill")
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Matched transfer")
+                        .font(.subheadline.weight(.semibold))
+                    Text("A matching \(CurrencyFormatter.string(abs(counterpart.amount), code: counterpart.isoCurrencyCode)) "
+                        + "\(txn.amount > 0 ? "credit" : "payment") \(counterpartAccountName) "
+                        + "on \(counterpart.date.formatted(.dateTime.month().day())). "
+                        + transferBudgetNote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private var counterpart: TransactionRecord? {
+        guard let pairId = txn.transferPairId else { return nil }
+        return allTransactions.first { $0.transferPairId == pairId && $0.id != txn.id }
+    }
+
+    private var counterpartAccountName: String {
+        guard let accountId = counterpart?.accountId,
+              let account = accounts.first(where: { $0.id == accountId })
+        else { return "on another account" }
+        return "on \(account.displayName)"
     }
 
     private var categoryGrid: some View {

@@ -61,8 +61,15 @@ enum CategoryResolver {
         return CategoryMapper.map(primary: plaidPrimary)
     }
 
-    private static func ruleIndex(for rules: [CategoryRule]) -> CategoryRuleIndex {
-        let signature = rules
+    /// Whether the user has explicitly taught a category for this descriptor.
+    /// Exposed so a caller with stronger evidence (a matched transfer pair) can
+    /// still yield to a deliberate user override.
+    static func userRuleCategory(name: String, merchant: String?, rules: [CategoryRule]) -> SpendCategory? {
+        let haystack = ((merchant ?? "") + " " + name).lowercased()
+        return ruleIndex(for: rules).category(for: haystack)
+    }
+
+    private static func ruleIndex(for rules: [CategoryRule]) -> CategoryRuleIndex {        let signature = rules
             .map { "\($0.matchText)\u{1F}\($0.categoryRaw)" }
             .joined(separator: "\u{1E}") as NSString
         if let cached = ruleIndexCache.object(forKey: signature) {
@@ -108,8 +115,17 @@ enum CategoryAssignment {
 
 extension TransactionRecord {
     /// The category after applying user rules, heuristics, then Plaid mapping.
+    ///
+    /// A confirmed transfer pair outranks both the provider category and the
+    /// descriptor heuristics — we can see the money land in another of your
+    /// accounts, which is far better evidence than any keyword. User rules
+    /// still win, so a pair can be overridden if the match is ever wrong.
     func resolvedCategory(using rules: [CategoryRule]) -> SpendCategory {
-        CategoryResolver.resolve(
+        if transferPairId != nil,
+           CategoryResolver.userRuleCategory(name: name, merchant: merchantName, rules: rules) == nil {
+            return .transfer
+        }
+        return CategoryResolver.resolve(
             name: name,
             merchant: merchantName,
             plaidPrimary: categoryPrimary,

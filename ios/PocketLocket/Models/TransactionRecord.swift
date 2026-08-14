@@ -16,6 +16,10 @@ final class TransactionRecord {
     var categoryDetailed: String?
     var logoURL: String?
     var accountId: String?
+    /// Set when this transaction was matched to a balancing leg on another of
+    /// your accounts (e.g. a credit card payoff). Nil when unmatched. Recomputed
+    /// idempotently after every sync by `TransferMatchService`.
+    var transferPairId: String?
 
     init(
         id: String,
@@ -29,7 +33,8 @@ final class TransactionRecord {
         categoryPrimary: String?,
         categoryDetailed: String?,
         logoURL: String?,
-        accountId: String?
+        accountId: String?,
+        transferPairId: String? = nil
     ) {
         self.id = id
         self.plaidTransactionId = plaidTransactionId
@@ -43,6 +48,7 @@ final class TransactionRecord {
         self.categoryDetailed = categoryDetailed
         self.logoURL = logoURL
         self.accountId = accountId
+        self.transferPairId = transferPairId
     }
 
     var category: SpendCategory {
