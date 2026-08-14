@@ -17,8 +17,7 @@ enum MerchantHeuristics {
         ("ach debit", .transfer), ("ach credit", .transfer), ("web pmt", .transfer),
         ("online transfer", .transfer), ("internal transfer", .transfer), ("funds transfer", .transfer),
         ("wire transfer", .transfer), ("bank transfer", .transfer), ("transfer to", .transfer),
-        ("transfer from", .transfer), ("xfer", .transfer), ("zelle", .transfer), ("venmo", .transfer),
-        ("cash app", .transfer), ("cashapp", .transfer), ("withdrawal", .transfer),
+        ("transfer from", .transfer), ("xfer", .transfer), ("withdrawal", .transfer),
         ("atm withdrawal", .transfer), ("to savings", .transfer), ("from savings", .transfer),
         ("robinhood", .transfer), ("coinbase", .transfer), ("fidelity", .transfer),
         ("vanguard", .transfer), ("charles schwab", .transfer), ("wealthfront", .transfer),
@@ -360,8 +359,15 @@ enum MerchantHeuristics {
             case .unmatched: return nil
             }
         }
-        let match = category(forTokens: tokens(in: haystack))
-        cacheLock.lock()
+    var match = category(forTokens: tokens(in: haystack))
+        // A peer-to-peer rail only decides the category when nothing else in
+        // the descriptor did. "PAYPAL *NETFLIX.COM" names a real merchant and
+        // keeps it; "VENMO PAYMENT ACH DEBIT" names none, so the rail words
+        // must not make it a transfer.
+        if PeerToPeerPayments.isPlatform(haystack), match == nil || match == .transfer {
+            match = PeerToPeerPayments.category(for: haystack)
+        }
+    cacheLock.lock()
         cache[cacheKey] = match.map(CachedCategory.match) ?? .unmatched
         cacheLock.unlock()
         return match

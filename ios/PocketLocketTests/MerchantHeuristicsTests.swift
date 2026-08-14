@@ -10,10 +10,27 @@ final class MerchantHeuristicsTests: XCTestCase {
         // With multiple accounts linked, these must NOT inflate the spend ring.
         XCTAssertEqual(category("AUTOPAY PAYMENT THANK YOU"), .transfer)
         XCTAssertEqual(category("ONLINE TRANSFER TO SAVINGS"), .transfer)
-        XCTAssertEqual(category("ZELLE TO ALEX"), .transfer)
         XCTAssertEqual(category("VENMO CASHOUT"), .transfer)
         XCTAssertEqual(category("ROBINHOOD FUNDING"), .transfer)
         XCTAssertFalse(SpendCategory.transfer.isSpending)
+    }
+
+    func testPeerToPeerPaymentsAreNotAssumedToBeTransfers() {
+        // The rail says how the money moved, not what it was for: the same
+        // descriptor covers repaying a friend and buying your half of dinner.
+        // Guessing "transfer" drops real spending out of the budget silently.
+        XCTAssertNil(category("ZELLE TO ALEX"))
+        XCTAssertNil(category("ZELLE TRANSFER TO ALEX"))
+        XCTAssertNil(category("VENMO PAYMENT"))
+        XCTAssertNil(category("CASH APP*JORDAN"))
+        XCTAssertNil(category("PAYPAL *SARAH M"))
+
+        // ...but moving your own money off the platform really is a transfer.
+        XCTAssertEqual(category("VENMO CASHOUT"), .transfer)
+        XCTAssertEqual(category("ZELLE INSTANT TRANSFER"), .transfer)
+
+        // A rail word must not smuggle it back in through the keyword table.
+        XCTAssertNil(category("VENMO PAYMENT ACH DEBIT"))
     }
 
     func testCommonMerchantsResolve() {

@@ -86,13 +86,20 @@ enum CategoryResolver {
         if let ruleCategory = index.category(for: haystack) {
             return ruleCategory
         }
-        if let providerCategory = CategoryMapper.recognizedCategory(primary: plaidPrimary) {
+        // A peer-to-peer rail is uninformative whoever says so, including the
+        // institution: banks tag these TRANSFER_OUT because of how the money
+        // moved, which is why some Zelles landed outside the budget and others
+        // inside, depending only on whether the bank bothered to categorize.
+        let isPeerToPeer = PeerToPeerPayments.isPlatform(haystack)
+        if let providerCategory = CategoryMapper.recognizedCategory(primary: plaidPrimary),
+           !(isPeerToPeer && providerCategory == .transfer) {
             return providerCategory
         }
         if let heuristic = MerchantHeuristics.category(for: haystack) {
             return heuristic
         }
-        return CategoryMapper.map(primary: plaidPrimary)
+        let fallback = CategoryMapper.map(primary: plaidPrimary)
+        return isPeerToPeer && fallback == .transfer ? .other : fallback
     }
 
     /// Whether the user has explicitly taught a category for this descriptor.
