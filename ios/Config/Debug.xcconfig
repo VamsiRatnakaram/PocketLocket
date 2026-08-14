@@ -1,4 +1,18 @@
 // Debug build configuration.
+
+// Signing team and bundle identifier, overridable per machine.
+//
+// Deliberately here and not in project.yml: a project-level build setting beats
+// a project xcconfig, so putting DEVELOPMENT_TEAM there made the documented
+// Secrets.xcconfig override silently do nothing. Secrets.xcconfig is included
+// *after* these defaults so a local value wins.
+//
+// The bundle ID prefix is overridable too: running on a physical device
+// requires registering the app identifier with your own team, which nobody
+// outside this one can do for com.vratnakaram.*.
+DEVELOPMENT_TEAM = ABCDE12345
+BUNDLE_ID_PREFIX = com.vratnakaram
+
 #include? "Secrets.xcconfig"
 
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG
