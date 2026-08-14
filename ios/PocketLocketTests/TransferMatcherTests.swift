@@ -61,13 +61,13 @@ final class TransferMatcherTests: XCTestCase {
         XCTAssertTrue(matches.isEmpty)
     }
 
-    /// A statement-cycle gap has to pair. The debit and the posted credit are
-    /// routinely weeks apart, so anything narrower silently misses real payoffs.
-    func testMatchesAcrossAStatementCycleGap() {
+    /// A payment initiated before a weekend or holiday can take several
+    /// business days to post on both sides, so a same-week gap has to pair.
+    func testMatchesAcrossASettlementDelay() {
         let matches = TransferMatcher.match(
             candidates: [
                 candidate("out", checking, 500, 0),
-                candidate("in", card, -500, 24),
+                candidate("in", card, -500, 6),
             ],
             transferAccountIds: [card]
         )
@@ -76,11 +76,13 @@ final class TransferMatcherTests: XCTestCase {
         XCTAssertEqual(matches["out"], matches["in"])
     }
 
+    /// Just outside the window, to pin the boundary rather than passing
+    /// trivially on a gap no plausible setting would accept.
     func testRespectsPostingWindow() {
         let matches = TransferMatcher.match(
             candidates: [
                 candidate("out", checking, 500, 0),
-                candidate("in", card, -500, 45),
+                candidate("in", card, -500, 9),
             ],
             transferAccountIds: [card]
         )
@@ -88,23 +90,23 @@ final class TransferMatcherTests: XCTestCase {
         XCTAssertTrue(matches.isEmpty)
     }
 
-    /// Widening to a month means more equal amounts land in range, so the
-    /// closest-posting rule is doing real work: next month's payment must not
-    /// steal this month's credit.
-    func testClosestPostingWinsWithinAWiderWindow() {
+    /// Two payments close enough that every leg is in range of every other.
+    /// Only the closest-posting rule stops the second payment from claiming
+    /// the first one's credit.
+    func testClosestPostingWinsWhenAllLegsAreInRange() {
         let matches = TransferMatcher.match(
             candidates: [
-                candidate("out-january", checking, 500, 0),
-                candidate("out-february", checking, 500, 28),
-                candidate("in-january", card, -500, 2),
-                candidate("in-february", card, -500, 30),
+                candidate("out-first", checking, 500, 0),
+                candidate("in-first", card, -500, 1),
+                candidate("out-second", checking, 500, 5),
+                candidate("in-second", card, -500, 6),
             ],
             transferAccountIds: [card]
         )
 
         XCTAssertEqual(matches.count, 4)
-        XCTAssertEqual(matches["out-january"], matches["in-january"])
-        XCTAssertEqual(matches["out-february"], matches["in-february"])
+        XCTAssertEqual(matches["out-first"], matches["in-first"])
+        XCTAssertEqual(matches["out-second"], matches["in-second"])
         XCTAssertEqual(Set(matches.values).count, 2)
     }
 

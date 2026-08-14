@@ -51,18 +51,17 @@ enum TransferMatcher {
 
     /// How far apart the two legs may post.
     ///
-    /// A full month, applied as a sliding window around each transaction rather
-    /// than a calendar boundary: card payments are driven by statement cycles,
-    /// so the debit and the posted credit can sit weeks apart (and a payment
-    /// made near a cycle close routinely straddles a month boundary, which is
-    /// why this isn't anchored to calendar months).
+    /// Applied as a sliding window around each transaction rather than anchored
+    /// to a calendar boundary, since a payment made near a month end would
+    /// otherwise fall outside its own window.
     ///
-    /// Widening the window raises the chance two unrelated equal amounts fall
-    /// inside it, so the precision here rests on the other constraints: the
-    /// legs must be on different accounts, one side must be a credit or loan
-    /// account, and each leg can be used only once with the closest-posting
-    /// pair winning.
-    static let defaultWindowInDays = 31
+    /// Eight days covers the realistic settlement delay — a payment initiated
+    /// before a weekend or holiday can take several business days to post on
+    /// both sides — while staying narrow enough that unrelated equal amounts
+    /// rarely collide. Widening it much further mostly buys false positives,
+    /// since the remaining guards (different accounts, a credit or loan account
+    /// on one side, each leg used once) then carry all of the precision.
+    static let defaultWindowInDays = 8
 
     /// Pairs balancing transactions, returning transaction id -> pair id.
     ///
@@ -73,8 +72,8 @@ enum TransferMatcher {
     ///     i.e. credit cards and loans. Requiring this is what stops a $50
     ///     purchase and an unrelated $50 refund between two checking accounts
     ///     from looking like a transfer.
-    ///   - windowInDays: maximum posting gap between the legs. Defaults to a
-    ///     one-month sliding window (see `defaultWindowInDays`).
+    ///   - windowInDays: maximum posting gap between the legs. Defaults to an
+    ///     eight-day sliding window (see `defaultWindowInDays`).
     static func match(
         candidates: [Candidate],
         transferAccountIds: Set<String>,
