@@ -25,14 +25,6 @@ struct AnalysisCategoryDetailView: View {
         case amountDesc = "Largest first"
         case amountAsc = "Smallest first"
         var id: String { rawValue }
-        var symbol: String {
-            switch self {
-            case .dateDesc: return "arrow.down"
-            case .dateAsc: return "arrow.up"
-            case .amountDesc: return "arrow.down.circle"
-            case .amountAsc: return "arrow.up.circle"
-            }
-        }
     }
 
     /// Everything the screen shows, derived in one pass.
@@ -92,8 +84,11 @@ struct AnalysisCategoryDetailView: View {
         switch sortOrder {
         case .dateDesc: return items.sorted { $0.date > $1.date }
         case .dateAsc: return items.sorted { $0.date < $1.date }
-        case .amountDesc: return items.sorted { $0.amount > $1.amount }
-        case .amountAsc: return items.sorted { $0.amount < $1.amount }
+        // By size, not by sign. Positive is money out and negative is money
+        // in, so ordering on the raw value filed the largest refunds under
+        // "Largest first" — the opposite of what the label promises.
+        case .amountDesc: return items.sorted { abs($0.amount) > abs($1.amount) }
+        case .amountAsc: return items.sorted { abs($0.amount) < abs($1.amount) }
         }
     }
 
@@ -171,23 +166,28 @@ struct AnalysisCategoryDetailView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Picker("Sort", selection: $sortOrder) {
+                    // No icons: the picker draws its own checkmark against the
+                    // selection, so an icon column would be a second, competing
+                    // meaning in the same row.
                     ForEach(SortOrder.allCases) { option in
-                        Label(option.rawValue, systemImage: option.symbol).tag(option)
+                        Text(option.rawValue).tag(option)
                     }
                 }
                 // A VoiceOver-reachable equivalent of tapping the bars, which
                 // are not individually focusable.
                 if content.months.count > 1 {
                     Menu("Months") {
+                        // A toggle rather than a button with a swapped icon: the
+                        // icon column cannot mean "this row is selected" and
+                        // "this row is a month" at the same time.
                         ForEach(content.months) { month in
-                            Button {
-                                toggle(month.monthStart)
-                            } label: {
-                                Label(
-                                    monthLabel(month.monthStart),
-                                    systemImage: selectedMonths.contains(month.monthStart) ? "checkmark" : "calendar"
+                            Toggle(
+                                monthLabel(month.monthStart),
+                                isOn: Binding(
+                                    get: { selectedMonths.contains(month.monthStart) },
+                                    set: { _ in toggle(month.monthStart) }
                                 )
-                            }
+                            )
                         }
                     }
                 }

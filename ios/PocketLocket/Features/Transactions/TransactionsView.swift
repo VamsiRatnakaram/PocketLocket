@@ -42,13 +42,6 @@ struct TransactionsView: View {
         case counted = "In budget"
         case excluded = "Not in budget"
         var id: String { rawValue }
-        var symbol: String {
-            switch self {
-            case .all: return "tray.full"
-            case .counted: return "checkmark.circle"
-            case .excluded: return "minus.circle"
-            }
-        }
     }
 
     enum Period: String, CaseIterable, Identifiable {
@@ -349,38 +342,29 @@ struct TransactionsView: View {
     private var filterMenu: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                Menu("Account") {
-                    Button { accountFilter = nil } label: {
-                        Label("All accounts", systemImage: accountFilter == nil ? "checkmark" : "tray.full")
-                    }
+                // Pickers, not Buttons: each draws the system's own selection
+                // checkmark. Swapping an option's icon for a checkmark when it
+                // was selected made the icon column carry two meanings at once.
+                Picker("Account", selection: $accountFilter) {
+                    Text("All accounts").tag(String?.none)
                     ForEach(accounts) { account in
-                        Button { accountFilter = account.id } label: {
-                            Label(account.displayName, systemImage: accountFilter == account.id ? "checkmark" : "creditcard")
-                        }
+                        Text(account.displayName).tag(String?.some(account.id))
                     }
                 }
-                Menu("Category") {
-                    Button { categoryFilter = nil } label: {
-                        Label("All categories", systemImage: categoryFilter == nil ? "checkmark" : "square.grid.2x2")
-                    }
+                Picker("Category", selection: $categoryFilter) {
+                    Text("All categories").tag(SpendCategory?.none)
                     ForEach(SpendCategory.allCases) { cat in
-                        Button { categoryFilter = cat } label: {
-                            Label(cat.displayName, systemImage: categoryFilter == cat ? "checkmark" : cat.symbol)
-                        }
+                        Label(cat.displayName, systemImage: cat.symbol).tag(SpendCategory?.some(cat))
                     }
                 }
-                Menu("Budget") {
+                Picker("Budget", selection: $budgetFilter) {
                     ForEach(BudgetFilter.allCases) { option in
-                        Button { budgetFilter = option } label: {
-                            Label(option.rawValue, systemImage: budgetFilter == option ? "checkmark" : option.symbol)
-                        }
+                        Text(option.rawValue).tag(option)
                     }
                 }
-                Menu("Period") {
+                Picker("Period", selection: $period) {
                     ForEach(Period.allCases) { option in
-                        Button { period = option } label: {
-                            Label(option.rawValue, systemImage: period == option ? "checkmark" : "calendar")
-                        }
+                        Text(option.rawValue).tag(option)
                     }
                 }
                 // An inline Picker, not Buttons: it draws the system's own
