@@ -14,13 +14,28 @@ struct AnalysisTransaction: Sendable, Hashable {
     let amount: Double
     let date: Date
     let categoryPrimary: String?
+    /// Carried so background resolution matches `TransactionRecord.resolvedCategory`
+    /// exactly. Without these the Analysis tab would categorize differently
+    /// from Home and Transactions for the same transaction.
+    let categoryOverride: SpendCategory?
+    let isMatchedTransfer: Bool
 
-    init(name: String, merchantName: String?, amount: Double, date: Date, categoryPrimary: String?) {
+    init(
+        name: String,
+        merchantName: String?,
+        amount: Double,
+        date: Date,
+        categoryPrimary: String?,
+        categoryOverride: SpendCategory? = nil,
+        isMatchedTransfer: Bool = false
+    ) {
         self.name = name
         self.merchantName = merchantName
         self.amount = amount
         self.date = date
         self.categoryPrimary = categoryPrimary
+        self.categoryOverride = categoryOverride
+        self.isMatchedTransfer = isMatchedTransfer
     }
 
     init(record: TransactionRecord) {
@@ -29,7 +44,9 @@ struct AnalysisTransaction: Sendable, Hashable {
             merchantName: record.merchantName,
             amount: record.amount,
             date: record.date,
-            categoryPrimary: record.categoryPrimary
+            categoryPrimary: record.categoryPrimary,
+            categoryOverride: record.categoryOverride,
+            isMatchedTransfer: record.transferPairId != nil
         )
     }
 
@@ -67,6 +84,21 @@ actor AnalysisComputeEngine {
     /// for tests.
     private(set) var missCount = 0
 
+    /// Mirrors `TransactionRecord.resolvedCategory`: override, then user rule,
+    /// then a matched transfer pair, then provider/heuristics.
+    private static func category(for txn: AnalysisTransaction, index: CategoryRuleIndex) -> SpendCategory {
+        if let override = txn.categoryOverride { return override }
+        let haystack = ((txn.merchantName ?? "") + " " + txn.name).lowercased()
+        if let ruleCategory = index.category(for: haystack) { return ruleCategory }
+        if txn.isMatchedTransfer { return .transfer }
+        return CategoryResolver.resolve(
+            name: txn.name,
+            merchant: txn.merchantName,
+            plaidPrimary: txn.categoryPrimary,
+            index: index
+        )
+    }
+
     /// Returns nil if the calling task was cancelled partway through.
     ///
     /// The actor runs one request at a time, so work nobody will ever look at
@@ -88,12 +120,7 @@ actor AnalysisComputeEngine {
                     MerchantAnalytics.Input(
                         title: txn.title,
                         amount: txn.amount,
-                        category: CategoryResolver.resolve(
-                            name: txn.name,
-                            merchant: txn.merchantName,
-                            plaidPrimary: txn.categoryPrimary,
-                            index: index
-                        ),
+                        category: Self.category(for: txn, index: index),
                         date: txn.date
                     )
                 )

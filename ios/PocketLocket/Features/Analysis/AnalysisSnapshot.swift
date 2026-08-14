@@ -93,35 +93,14 @@ final class AnalysisSnapshotCache {
     private var hasSnapshot = false
     private var snapshot = AnalysisSnapshot()
 
-    /// Content hash of the transactions that feed analysis. Hashing a few
-    /// scalar fields per record is orders of magnitude cheaper than the
-    /// regex-based normalization/categorization it guards.
+    /// Delegated to `RecordHash` so the analysis cache and the list caches can
+    /// never disagree about what counts as a change.
     static func dataHash(_ transactions: [TransactionRecord]) -> Int {
-        var hasher = Hasher()
-        hasher.combine(transactions.count)
-        for txn in transactions {
-            hasher.combine(txn.id)
-            hasher.combine(txn.amount)
-            hasher.combine(txn.date)
-            // Both, not `title`: `title` collapses to `merchantName` when one
-            // is set, hiding edits to `name` — and categorization matches
-            // against both.
-            hasher.combine(txn.name)
-            hasher.combine(txn.merchantName)
-            hasher.combine(txn.categoryPrimary)
-            hasher.combine(txn.accountId)
-        }
-        return hasher.finalize()
+        RecordHash.transactions(transactions)
     }
 
     static func rulesHash(_ rules: [CategoryRule]) -> Int {
-        var hasher = Hasher()
-        hasher.combine(rules.count)
-        for rule in rules {
-            hasher.combine(rule.matchText)
-            hasher.combine(rule.categoryRaw)
-        }
-        return hasher.finalize()
+        RecordHash.rules(rules)
     }
 
     /// Returns the analysis snapshot for this data/filter combination,

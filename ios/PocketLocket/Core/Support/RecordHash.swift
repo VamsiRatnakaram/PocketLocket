@@ -27,6 +27,11 @@ enum RecordHash {
             hasher.combine(txn.merchantName)
             hasher.combine(txn.categoryPrimary)
             hasher.combine(txn.accountId)
+            // Both change a transaction's resolved category without touching
+            // any other hashed field, so omitting them would pin a stale list
+            // after a recategorization or a newly matched transfer pair.
+            hasher.combine(txn.categoryOverrideRaw)
+            hasher.combine(txn.transferPairId)
         }
         return hasher.finalize()
     }

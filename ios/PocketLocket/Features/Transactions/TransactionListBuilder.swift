@@ -21,8 +21,12 @@ enum TransactionListBuilder {
         var accountId: String?
         var category: SpendCategory?
         var type: TransactionsView.TxnType = .all
+        var budget: TransactionsView.BudgetFilter = .all
         var periodInterval: DateInterval?
         var sortOrder: TransactionsView.SortOrder = .dateDesc
+        /// Needed by the budget filter: an excluded account never feeds the
+        /// budget, so its rows are not "In budget" even when they are spending.
+        var excludedAccountIds: Set<String> = []
     }
 
     /// Applies `criteria` to `transactions`, resolving each category at most once.
@@ -40,7 +44,7 @@ enum TransactionListBuilder {
         for txn in transactions {
             // Cheap scalar rejections come first so the expensive category
             // resolution below only runs for transactions still in the running.
-            if let interval = criteria.periodInterval, !interval.contains(txn.date) { continue }
+            if let interval = criteria.periodInterval, !interval.containsHalfOpen(txn.date) { continue }
             if let accountId = criteria.accountId, txn.accountId != accountId { continue }
 
             switch criteria.type {
@@ -57,6 +61,19 @@ enum TransactionListBuilder {
 
             let category = resolve(txn)
             if let wanted = criteria.category, category != wanted { continue }
+            switch criteria.budget {
+            case .all: break
+            case .counted:
+                if !SpendingAccountFilter.countsTowardBudget(
+                    category: category, amount: txn.amount,
+                    accountId: txn.accountId, excluded: criteria.excludedAccountIds
+                ) { continue }
+            case .excluded:
+                if SpendingAccountFilter.countsTowardBudget(
+                    category: category, amount: txn.amount,
+                    accountId: txn.accountId, excluded: criteria.excludedAccountIds
+                ) { continue }
+            }
 
             rows.append(Row(transaction: txn, category: category))
         }
