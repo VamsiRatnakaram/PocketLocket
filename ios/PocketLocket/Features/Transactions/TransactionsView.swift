@@ -17,9 +17,11 @@ struct TransactionsView: View {
     @State private var showAdd = false
     @State private var editing: TransactionRecord?
     @State private var isSelecting = false
+    @State private var isRefreshing = false
     @State private var selectedTransactionIDs: Set<String> = []
     @State private var assignmentErrorMessage: String?
     @State private var rowsCache = DerivedCache<RowsKey, [TransactionListBuilder.Row]>()
+    @State private var syncErrorMessage: String?
 
     enum TxnType: String, CaseIterable, Identifiable {
         case all, expenses, income
@@ -58,6 +60,23 @@ struct TransactionsView: View {
     private func delete(_ txn: TransactionRecord) {
         context.delete(txn)
         try? context.save()
+    }
+
+    /// Pull-to-refresh, matching Home and Accounts. Skipped while multi-select
+    /// is active so a sync can't shift rows under an in-progress selection.
+    private func refresh() async {
+        guard !isSelecting else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        do {
+            try await SyncService.shared.refresh(context: context)
+        } catch is CancellationError {
+            // A superseded/cancelled refresh (e.g. the pull gesture resetting) is benign.
+        } catch let error as URLError where error.code == .cancelled {
+            // Benign cancellation — the next pull will refresh.
+        } catch {
+            syncErrorMessage = error.localizedDescription
+        }
     }
 
     private var hasActiveFilters: Bool {
@@ -145,6 +164,7 @@ struct TransactionsView: View {
                 }
             }
             .listStyle(.plain)
+            .refreshable { await refresh() }
             .navigationTitle("Transactions")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search merchants")
@@ -169,11 +189,16 @@ struct TransactionsView: View {
                         Button { showAdd = true } label: { Image(systemName: "plus") }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
+                        // The guard in `refresh()` only stops a sync starting
+                        // during a selection. Entering a selection during a
+                        // sync let rows shift underneath it just the same, so
+                        // selected transactions could vanish before the bulk
+                        // assignment ran.
                         Button { isSelecting = true } label: {
                             Image(systemName: "checklist")
                         }
                         .accessibilityLabel("Select transactions")
-                        .disabled(rows.isEmpty)
+                        .disabled(isRefreshing || rows.isEmpty)
                     }
                 }
             }
@@ -186,6 +211,11 @@ struct TransactionsView: View {
                 Button("OK", role: .cancel) { assignmentErrorMessage = nil }
             } message: {
                 Text(assignmentErrorMessage ?? "Please try again.")
+            }
+            .alert("Couldn’t Refresh", isPresented: syncErrorBinding) {
+                Button("OK", role: .cancel) { syncErrorMessage = nil }
+            } message: {
+                Text(syncErrorMessage ?? "Please try again.")
             }
             .animation(.default, value: rows.count)
             .overlay {
@@ -243,6 +273,13 @@ struct TransactionsView: View {
         Binding(
             get: { assignmentErrorMessage != nil },
             set: { if !$0 { assignmentErrorMessage = nil } }
+        )
+    }
+
+    private var syncErrorBinding: Binding<Bool> {
+        Binding(
+            get: { syncErrorMessage != nil },
+            set: { if !$0 { syncErrorMessage = nil } }
         )
     }
 
