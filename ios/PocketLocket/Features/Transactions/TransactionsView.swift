@@ -326,7 +326,9 @@ struct TransactionsView: View {
         let selected = transactions.filter { selectedTransactionIDs.contains($0.id) }
         guard !selected.isEmpty else { return }
         do {
-            try CategoryAssignment.assign(category, to: selected, using: rules, in: context)
+            try CategoryAssignment.assign(
+                category, to: selected, using: rules, in: context, ledger: transactions
+            )
             endSelection()
         } catch {
             assignmentErrorMessage = error.localizedDescription

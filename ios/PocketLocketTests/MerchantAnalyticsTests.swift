@@ -273,4 +273,22 @@ final class MerchantAnalyticsTests: XCTestCase {
         guard let merchant = stats(titles).first else { return XCTFail("no merchant") }
         XCTAssertEqual(titles.filter { merchant.matches($0) }.count, merchant.visitCount)
     }
+
+    func testStatementReferencesFoldIntoASharedMerchantIdentity() {
+        // Neither descriptor ever appears bare, so the shared prefix has to be
+        // derived — this is the utility that renames itself every month.
+        let keys = ["Puget Sound Energy Billpay 4471", "Puget Sound Energy Webpay 8832"]
+        let canonical = MerchantNormalizer.canonicalKeys(for: keys)
+        XCTAssertEqual(Set(canonical.values), ["Puget Sound Energy"])
+    }
+
+    func testSharedPrefixNeverMergesGenuinelyDifferentMerchants() {
+        // What differs is a word, not a reference, so these must stay apart.
+        let canonical = MerchantNormalizer.canonicalKeys(for: ["Whole Foods", "Whole Earth"])
+        XCTAssertEqual(Set(canonical.values), ["Whole Foods", "Whole Earth"])
+
+        // The reference is dropped, but the sub-brand must not fold into "Uber".
+        let uber = MerchantNormalizer.canonicalKeys(for: ["Uber Trip 123", "Uber Eats 456"])
+        XCTAssertEqual(uber["Uber Eats 456"], "Uber Eats")
+    }
 }
