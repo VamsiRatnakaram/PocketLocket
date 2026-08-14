@@ -103,7 +103,11 @@ final class PerTransactionCategoryTests: XCTestCase {
         try CategoryAssignment.assign(.food, to: [dinner], using: [], in: context, scope: .thisTransactionOnly)
 
         XCTAssertEqual(dinner.resolvedCategory(using: []), .food)
-        XCTAssertEqual(repayment.resolvedCategory(using: []), .transfer)
+        // Asserted as "unchanged" rather than as a specific category: what this
+        // test is about is the narrow scope not reaching the sibling, not
+        // whatever the heuristics happen to default a bare Venmo to.
+        XCTAssertNil(repayment.categoryOverride)
+        XCTAssertNotEqual(repayment.resolvedCategory(using: []), .food)
         let rules = try context.fetch(FetchDescriptor<CategoryRule>())
         XCTAssertTrue(rules.isEmpty, "A narrow assignment must not teach a merchant-wide rule")
     }
