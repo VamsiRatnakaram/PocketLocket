@@ -138,7 +138,10 @@ enum MerchantNormalizer {
     /// never merged into "Whole". A shared prefix is also refused whenever the
     /// two forms carry different known categories, keeping "Uber Eats" out of
     /// "Uber".
-    static func canonicalKeys(for keys: some Sequence<String>) -> [String: String] {
+    static func canonicalKeys(
+        for keys: some Sequence<String>,
+        policy: MergePolicy = .conservative
+    ) -> [String: String] {
         // A shorter form always shares its first token with the longer one, so
         // bucketing by that token keeps the pairwise scan below linear overall
         // instead of quadratic across the whole ledger.
@@ -152,7 +155,7 @@ enum MerchantNormalizer {
 
         var mapping: [String: String] = [:]
         for entries in buckets.values {
-            var candidates = entries.map { (name: $0.key, tokens: $0.tokens) }
+            var candidates = entries.map { (name: $0.key, tokens: $0.tokens, derived: false) }
 
             for i in entries.indices {
                 for j in entries.index(after: i)..<entries.endIndex {
@@ -163,7 +166,8 @@ enum MerchantNormalizer {
                           looksLikeReference(b.tokens.dropFirst(shared)) else { continue }
                     candidates.append((
                         name: a.words.prefix(shared).joined(separator: " "),
-                        tokens: Array(a.tokens.prefix(shared))
+                        tokens: Array(a.tokens.prefix(shared)),
+                        derived: true
                     ))
                 }
             }
@@ -173,8 +177,15 @@ enum MerchantNormalizer {
             for entry in entries {
                 var canonical = entry.key
                 for candidate in byLength where candidate.tokens.count < entry.tokens.count {
+                    // A derived prefix only exists because the two forms differ
+                    // by a reference, so when the user is asserting the category
+                    // themselves a heuristic disagreement must not veto it —
+                    // "PUGET SOUND ENERGY BILLPAY 4471" reads as a bill payment
+                    // to the keyword table, which is exactly the guess the user
+                    // is correcting.
+                    let needsAgreement = !(candidate.derived && policy == .userAsserted)
                     guard entry.tokens.starts(with: candidate.tokens),
-                          categoriesAgree(candidate.name, entry.key) else { continue }
+                          !needsAgreement || categoriesAgree(candidate.name, entry.key) else { continue }
                     canonical = candidate.name
                     break
                 }
@@ -182,6 +193,14 @@ enum MerchantNormalizer {
             }
         }
         return mapping
+    }
+
+    /// How willing grouping is to merge two descriptor forms.
+    enum MergePolicy {
+        /// Automatic grouping: never merge forms whose known categories differ.
+        case conservative
+        /// Teaching a rule, where the user is stating the category themselves.
+        case userAsserted
     }
 
     /// Whether the tokens a merchant name would lose look like a per-charge or

@@ -142,7 +142,8 @@ enum CategoryAssignment {
         let normalized = MerchantNormalizer.normalize(descriptor)
         if !ledger.isEmpty {
             let canonical = MerchantNormalizer.canonicalKeys(
-                for: ledger.map { MerchantNormalizer.groupingKey($0.merchantName ?? $0.name) }
+                for: ledger.map { MerchantNormalizer.groupingKey($0.merchantName ?? $0.name) },
+                policy: .userAsserted
             )
             if let name = canonical[MerchantNormalizer.groupingKey(descriptor)] {
                 let cleaned = MerchantHeuristics.ruleMatchText(for: name)

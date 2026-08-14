@@ -278,7 +278,7 @@ final class MerchantAnalyticsTests: XCTestCase {
         // Neither descriptor ever appears bare, so the shared prefix has to be
         // derived — this is the utility that renames itself every month.
         let keys = ["Puget Sound Energy Billpay 4471", "Puget Sound Energy Webpay 8832"]
-        let canonical = MerchantNormalizer.canonicalKeys(for: keys)
+        let canonical = MerchantNormalizer.canonicalKeys(for: keys, policy: .userAsserted)
         XCTAssertEqual(Set(canonical.values), ["Puget Sound Energy"])
     }
 
