@@ -202,6 +202,7 @@ final class MerchantAnalyticsTests: XCTestCase {
         let averages = MerchantAnalytics.categoryAverages(inputs, calendar: calendar)
         let health = try? XCTUnwrap(averages.first { $0.category == .health })
         XCTAssertEqual(health?.averagePerMonth ?? 0, 10, accuracy: 0.001)
+    }
 
     // MARK: - Real descriptor shapes from Charlie's ledger
 
