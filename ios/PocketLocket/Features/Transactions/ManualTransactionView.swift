@@ -10,11 +10,14 @@ struct ManualTransactionView: View {
 
     let editing: TransactionRecord?
 
+    @Query private var rules: [CategoryRule]
+
     @State private var amount: Double = 0
     @State private var isExpense = true
     @State private var merchant = ""
     @State private var date = Date()
     @State private var category: SpendCategory = .other
+    @State private var didResolveCategory = false
 
     init(editing: TransactionRecord? = nil) {
         self.editing = editing
@@ -23,7 +26,15 @@ struct ManualTransactionView: View {
             _isExpense = State(initialValue: editing.amount > 0)
             _merchant = State(initialValue: editing.merchantName ?? editing.name)
             _date = State(initialValue: editing.date)
-            _category = State(initialValue: CategoryMapper.map(primary: editing.categoryPrimary))
+            // The *resolved* category, not the raw provider one: a per-
+            // transaction override or a user rule outranks `categoryPrimary`,
+            // so showing the provider's guess here presented a category the
+            // user had already corrected.
+            // The override outranks `categoryPrimary`, so showing the
+            // provider's guess presented a category the user had already
+            // corrected. Rules are applied in `.task` below, where the query
+            // is available.
+            _category = State(initialValue: editing.categoryOverride ?? CategoryMapper.map(primary: editing.categoryPrimary))
         }
     }
 
@@ -69,6 +80,11 @@ struct ManualTransactionView: View {
                     Button("Save") { save() }.disabled(!isValid)
                 }
             }
+            .task {
+                guard !didResolveCategory, let editing else { return }
+                didResolveCategory = true
+                category = editing.resolvedCategory(using: rules)
+            }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(30)
@@ -86,6 +102,11 @@ struct ManualTransactionView: View {
             editing.amount = signed
             editing.date = date
             editing.categoryPrimary = category.plaidPrimary
+            // Writing only `categoryPrimary` left any existing override in
+            // place, and the override outranks it — so picking a new category
+            // here looked like it did nothing. An explicit choice in this
+            // editor is a per-transaction decision, so record it as one.
+            editing.categoryOverride = category
         } else {
             let id = "manual-\(UUID().uuidString)"
             context.insert(TransactionRecord(

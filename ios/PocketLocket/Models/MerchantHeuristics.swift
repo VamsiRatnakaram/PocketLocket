@@ -255,6 +255,7 @@ enum MerchantHeuristics {
         case unmatched
     }
 
+    private static let cacheLock = NSLock()
     private static var cache: [String: CachedCategory] = [:]
 
     static func normalized(_ value: String) -> String {
@@ -320,16 +321,39 @@ enum MerchantHeuristics {
         return nil
     }
 
+    /// Peer-to-peer payment apps, where the descriptor names the platform but
+    /// says nothing about what the money was for.
+    ///
+    /// These are classified as transfers by default, which is right for
+    /// repaying a friend and wrong for covering your half of dinner — and the
+    /// same descriptor produces both. Callers use this to default a category
+    /// choice to "this transaction only", because a merchant-wide rule keyed on
+    /// "venmo" would be a guess applied to every past and future Venmo.
+    static let peerToPeerKeywords = ["venmo", "zelle", "cash app", "cashapp", "paypal", "apple cash"]
+
+    static func isPeerToPeer(_ descriptor: String) -> Bool {
+        let descriptorTokens = tokens(in: descriptor)
+        return peerToPeerKeywords.contains { contains(tokens(in: $0), in: descriptorTokens) }
+    }
+
+    /// Thread-safe: category resolution now also runs on a background executor
+    /// for the Analysis tab while the main thread may be resolving categories
+    /// for other views, so the memo table must be locked.
     static func category(for haystack: String) -> SpendCategory? {
         let cacheKey = normalized(haystack)
-        if let cached = cache[cacheKey] {
+        cacheLock.lock()
+        let cached = cache[cacheKey]
+        cacheLock.unlock()
+        if let cached {
             switch cached {
             case let .match(category): return category
             case .unmatched: return nil
             }
         }
         let match = category(forTokens: tokens(in: haystack))
+        cacheLock.lock()
         cache[cacheKey] = match.map(CachedCategory.match) ?? .unmatched
+        cacheLock.unlock()
         return match
     }
 

@@ -13,8 +13,32 @@ final class SyncService {
     /// can reuse that authentication instead of prompting again.
     var authContext: LAContext?
 
+    private var inFlight: Task<Void, Error>?
+
+    /// Coalesces concurrent syncs.
+    ///
+    /// `refreshSimpleFIN` snapshots the local ledger into a dedupe index and
+    /// *then* awaits the network. A pull-to-refresh landing on top of an
+    /// automatic sync therefore ran a second pass whose snapshot predated the
+    /// first pass's writes, so dedupe could miss and the same transaction
+    /// could be inserted twice. Later callers now join the running sync.
     func refresh(context: ModelContext) async throws {
-        try await refreshSimpleFIN(context: context)
+        if let inFlight {
+            return try await inFlight.value
+        }
+        // The task clears its own handle so the slot is held for as long as the
+        // work actually runs. Clearing it where this call returns would release
+        // it early whenever the caller is cancelled — the unstructured task
+        // keeps going, and a fresh sync could start alongside it.
+        let task = Task {
+            defer { self.inFlight = nil }
+            try await self.refreshSimpleFIN(context: context)
+            // After new rows land, re-pair transfers across the whole history:
+            // the two legs of a card payoff routinely arrive in different syncs.
+            try TransferMatchService.recompute(in: context)
+        }
+        inFlight = task
+        try await task.value
     }
 
     private func refreshSimpleFIN(context: ModelContext) async throws {
