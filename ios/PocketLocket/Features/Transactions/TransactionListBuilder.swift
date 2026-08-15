@@ -4,6 +4,12 @@ import Foundation
 /// view so it runs once per change instead of once per reference — and so it
 /// can be tested without a SwiftData container driving a `body`.
 enum TransactionListBuilder {
+    enum Classification: Equatable {
+        case expense
+        case returns
+        case income
+    }
+
     /// A transaction paired with the category the list should display for it.
     ///
     /// Resolving a category is the most expensive per-transaction operation in
@@ -13,6 +19,7 @@ enum TransactionListBuilder {
     struct Row: Identifiable {
         let transaction: TransactionRecord
         let category: SpendCategory
+        let classification: Classification
         var id: String { transaction.id }
     }
 
@@ -50,7 +57,7 @@ enum TransactionListBuilder {
             switch criteria.type {
             case .all: break
             case .expenses: if txn.amount <= 0 { continue }
-            case .income: if txn.amount >= 0 { continue }
+            case .returns, .income: if txn.amount >= 0 { continue }
             }
 
             if !criteria.search.isEmpty {
@@ -60,6 +67,13 @@ enum TransactionListBuilder {
             }
 
             let category = resolve(txn)
+            let classification = classify(txn, category: category)
+            switch criteria.type {
+            case .all: break
+            case .expenses: if classification != .expense { continue }
+            case .returns: if classification != .returns { continue }
+            case .income: if classification != .income { continue }
+            }
             if let wanted = criteria.category, category != wanted { continue }
             switch criteria.budget {
             case .all: break
@@ -75,10 +89,27 @@ enum TransactionListBuilder {
                 ) { continue }
             }
 
-            rows.append(Row(transaction: txn, category: category))
+            rows.append(Row(
+                transaction: txn,
+                category: category,
+                classification: classification
+            ))
         }
 
         return sort(rows, by: criteria.sortOrder)
+    }
+
+    static func classify(
+        _ transaction: TransactionRecord,
+        category: SpendCategory
+    ) -> Classification {
+        guard transaction.amount < 0 else { return .expense }
+        guard category.isSpending else { return .income }
+        if category != .other { return .returns }
+
+        let descriptor = "\(transaction.name) \(transaction.merchantName ?? "")".lowercased()
+        let returnMarkers = ["refund", "return", "returned", "reversal"]
+        return returnMarkers.contains { descriptor.contains($0) } ? .returns : .income
     }
 
     static func sort(_ rows: [Row], by order: TransactionsView.SortOrder) -> [Row] {

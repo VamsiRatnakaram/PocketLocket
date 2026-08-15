@@ -54,6 +54,29 @@ final class TransactionListBuilderTests: XCTestCase {
         XCTAssertEqual(rows(.init(type: .income)).map(\.id), ["3"])
     }
 
+    func testReturnsAreSeparatedFromIncomeByResolvedCategory() {
+        let transactions = [
+            txn("purchase", name: "TARGET.COM", amount: 364.80, day: 3),
+            txn("return", name: "TARGET STORE T3275", amount: -364.80, day: 10),
+            txn("paycheck", name: "PAYCHECK", amount: -2_000, day: 12),
+        ]
+        let resolve: (TransactionRecord) -> SpendCategory = {
+            $0.name == "PAYCHECK" ? .income : .shopping
+        }
+
+        XCTAssertEqual(rows(.init(type: .expenses), from: transactions, resolve: resolve).map(\.id), ["purchase"])
+        XCTAssertEqual(rows(.init(type: .returns), from: transactions, resolve: resolve).map(\.id), ["return"])
+        XCTAssertEqual(rows(.init(type: .income), from: transactions, resolve: resolve).map(\.id), ["paycheck"])
+    }
+
+    func testAmbiguousInflowRequiresReturnDescriptor() {
+        let refund = txn("refund", name: "MERCHANT REFUND", amount: -20, day: 2)
+        let deposit = txn("deposit", name: "MYSTERY DEPOSIT", amount: -20, day: 3)
+
+        XCTAssertEqual(TransactionListBuilder.classify(refund, category: .other), .returns)
+        XCTAssertEqual(TransactionListBuilder.classify(deposit, category: .other), .income)
+    }
+
     func testAccountFilter() {
         XCTAssertEqual(rows(.init(accountId: "savings")).map(\.id), ["2"])
     }
