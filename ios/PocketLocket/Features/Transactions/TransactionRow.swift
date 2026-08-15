@@ -42,6 +42,8 @@ struct TransactionRow: View {
                 .foregroundStyle(txn.amount > 0 ? Color.primary : Color.green)
         }
         .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     /// Plaid convention: positive = money out (spend), negative = money in.
