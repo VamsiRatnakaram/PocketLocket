@@ -7,6 +7,7 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
 
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage("ringStyle") private var ringStyleRaw: String = RingStyle.donut.rawValue
@@ -68,6 +69,7 @@ struct HomeView: View {
     private struct MonthKey: Equatable {
         var dataHash: Int
         var rulesHash: Int
+        var reimbursementsHash: Int
         var monthStart: Date
         var excludedAccountsRaw: String
         var monthlyBudget: Double
@@ -92,13 +94,21 @@ struct HomeView: View {
         let key = MonthKey(
             dataHash: RecordHash.transactions(monthTransactions),
             rulesHash: RecordHash.rules(rules),
+            reimbursementsHash: RecordHash.reimbursements(reimbursementAllocations),
             monthStart: monthInterval.start,
             excludedAccountsRaw: excludedAccountsRaw,
             monthlyBudget: monthlyBudget
         )
         return summaryCache.value(for: key) {
+            let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
             let items = monthTransactions.map {
-                SpendItem(category: $0.resolvedCategory(using: rules), amount: $0.amount)
+                SpendItem(
+                    category: $0.resolvedCategory(using: rules),
+                    amount: reimbursementIndex.effectiveExpenseAmount(
+                        transactionID: $0.id,
+                        originalAmount: $0.amount
+                    )
+                )
             }
             return MonthSummary(
                 items: items,

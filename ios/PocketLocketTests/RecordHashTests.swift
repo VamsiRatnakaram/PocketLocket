@@ -119,4 +119,25 @@ final class RecordHashTests: XCTestCase {
             ])
         )
     }
+
+    @MainActor
+    func testReimbursementChangesAreDetected() {
+        let base = ReimbursementAllocation(
+            id: "a1",
+            sourceTransactionID: "venmo",
+            expenseTransactionID: "dinner",
+            amount: 20
+        )
+        let changed = ReimbursementAllocation(
+            id: "a1",
+            sourceTransactionID: "venmo",
+            expenseTransactionID: "dinner",
+            amount: 25
+        )
+
+        XCTAssertNotEqual(
+            RecordHash.reimbursements([base]),
+            RecordHash.reimbursements([changed])
+        )
+    }
 }

@@ -21,6 +21,7 @@ struct TransactionDetailView: View {
     @Query private var groupingRules: [MerchantGroupingRule]
     @Query private var allTransactions: [TransactionRecord]
     @Query private var accounts: [AccountRecord]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
 
     @State private var selected: SpendCategory
     @State private var scope: CategoryAssignment.Scope
@@ -35,6 +36,7 @@ struct TransactionDetailView: View {
     @State private var preparedInputKey: TransactionAssignmentPreparationKey?
     @State private var didPersistBroadRule = false
     @State private var pendingRuleStateToRestore: CategoryAssignment.PreparedRuleState?
+    @State private var showReimbursementAllocation = false
     /// What the scope picker started on, so dismissing an untouched sheet
     /// writes nothing.
     private let initialScope: CategoryAssignment.Scope
@@ -79,6 +81,7 @@ struct TransactionDetailView: View {
                 VStack(spacing: 16) {
                     header
                     transferMatchNote
+                    reimbursementNote
                     categoryGrid
                 }
                 .padding(16)
@@ -120,6 +123,13 @@ struct TransactionDetailView: View {
         }) { stats in
             MerchantGroupingEditorView(stats: stats) {
                 dismissAfterGroupingEdit = true
+            }
+        }
+        .sheet(isPresented: $showReimbursementAllocation) {
+            if txn.amount < 0 {
+                ReimbursementAllocationView(source: txn)
+            } else {
+                ReimbursementAllocationView(expense: txn)
             }
         }
     }
@@ -205,6 +215,68 @@ struct TransactionDetailView: View {
               let account = accounts.first(where: { $0.id == accountId })
         else { return "on another account" }
         return "on \(account.displayName)"
+    }
+
+    @ViewBuilder
+    private var reimbursementNote: some View {
+        let index = ReimbursementAllocationIndex(reimbursementAllocations)
+        if txn.amount < 0, txn.transferPairId == nil {
+            let applied = index.allocatedFromSource(txn.id)
+            let remaining = index.remainingSourceAmount(
+                transactionID: txn.id,
+                originalAmount: txn.amount
+            )
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Reimbursement", systemImage: "person.2.fill")
+                    .font(.headline)
+                    .foregroundStyle(.green)
+                Text(applied > 0
+                    ? "\(CurrencyFormatter.string(applied, code: txn.isoCurrencyCode)) applied • "
+                        + "\(CurrencyFormatter.string(remaining, code: txn.isoCurrencyCode)) remaining"
+                    : "Apply money friends paid back to the purchases it covered.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button { showReimbursementAllocation = true } label: {
+                    Label(applied > 0 ? "Review Allocations" : "Apply to Purchases", systemImage: "arrow.triangle.branch")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        } else if txn.amount > 0 {
+            let reimbursed = index.allocatedToExpense(txn.id)
+            if selected.isSpending || reimbursed > 0.005 {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(
+                        reimbursed > 0.005
+                            ? (reimbursed >= txn.amount - 0.005 ? "Fully reimbursed" : "Partly reimbursed")
+                            : "Reimbursement",
+                        systemImage: "person.2.fill"
+                    )
+                    .font(.headline)
+                    .foregroundStyle(.green)
+                    Text(reimbursed > 0.005
+                        ? "\(CurrencyFormatter.string(reimbursed, code: txn.isoCurrencyCode)) paid back • "
+                            + "\(CurrencyFormatter.string(max(0, txn.amount - reimbursed), code: txn.isoCurrencyCode)) net spending"
+                        : "Assign incoming payments from friends directly to this purchase.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button { showReimbursementAllocation = true } label: {
+                        Label(
+                            reimbursed > 0.005 ? "Review Reimbursements" : "Assign Reimbursement",
+                            systemImage: "arrow.triangle.branch"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
     }
 
     private var categoryGrid: some View {

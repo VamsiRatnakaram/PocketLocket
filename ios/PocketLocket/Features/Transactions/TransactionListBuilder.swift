@@ -20,6 +20,9 @@ enum TransactionListBuilder {
         let transaction: TransactionRecord
         let category: SpendCategory
         let classification: Classification
+        let reimbursedAmount: Double
+        let reimbursementSourceAmount: Double
+        let effectiveAmount: Double
         var id: String { transaction.id }
     }
 
@@ -43,6 +46,7 @@ enum TransactionListBuilder {
     static func rows(
         from transactions: [TransactionRecord],
         criteria: Criteria,
+        reimbursementIndex: ReimbursementAllocationIndex = .empty,
         resolve: (TransactionRecord) -> SpendCategory
     ) -> [Row] {
         var rows: [Row] = []
@@ -68,6 +72,10 @@ enum TransactionListBuilder {
 
             let category = resolve(txn)
             let classification = classify(txn, category: category)
+            let effectiveAmount = reimbursementIndex.effectiveExpenseAmount(
+                transactionID: txn.id,
+                originalAmount: txn.amount
+            )
             switch criteria.type {
             case .all: break
             case .expenses: if classification != .expense { continue }
@@ -79,12 +87,12 @@ enum TransactionListBuilder {
             case .all: break
             case .counted:
                 if !SpendingAccountFilter.countsTowardBudget(
-                    category: category, amount: txn.amount,
+                    category: category, amount: effectiveAmount,
                     accountId: txn.accountId, excluded: criteria.excludedAccountIds
                 ) { continue }
             case .excluded:
                 if SpendingAccountFilter.countsTowardBudget(
-                    category: category, amount: txn.amount,
+                    category: category, amount: effectiveAmount,
                     accountId: txn.accountId, excluded: criteria.excludedAccountIds
                 ) { continue }
             }
@@ -92,7 +100,10 @@ enum TransactionListBuilder {
             rows.append(Row(
                 transaction: txn,
                 category: category,
-                classification: classification
+                classification: classification,
+                reimbursedAmount: reimbursementIndex.allocatedToExpense(txn.id),
+                reimbursementSourceAmount: reimbursementIndex.allocatedFromSource(txn.id),
+                effectiveAmount: effectiveAmount
             ))
         }
 

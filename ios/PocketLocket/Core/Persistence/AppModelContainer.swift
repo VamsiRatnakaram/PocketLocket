@@ -15,7 +15,8 @@ enum AppModelContainer {
                 for: AccountRecord.self,
                 TransactionRecord.self,
                 CategoryRule.self,
-                MerchantGroupingRule.self
+                MerchantGroupingRule.self,
+                ReimbursementAllocation.self
             )
         } catch {
             persistentStoreError = error.localizedDescription
@@ -36,6 +37,7 @@ enum AppModelContainer {
                 TransactionRecord.self,
                 CategoryRule.self,
                 MerchantGroupingRule.self,
+                ReimbursementAllocation.self,
                 configurations: recoveryConfiguration
             )
         } catch {

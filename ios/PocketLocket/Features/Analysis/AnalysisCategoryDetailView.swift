@@ -12,6 +12,7 @@ struct AnalysisCategoryDetailView: View {
     let category: SpendCategory
     let transactions: [TransactionRecord]
     let rules: [CategoryRule]
+    let reimbursementAllocations: [ReimbursementAllocation]
 
     @State private var detail: TransactionRecord?
     /// Empty means "every month" — the chart starts unfiltered.
@@ -42,6 +43,7 @@ struct AnalysisCategoryDetailView: View {
 
     private var content: Content {
         let calendar = Calendar.current
+        let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
         // Positive amounts only, matching what the Analysis screen counted to
         // produce the row you tapped. Including refunds here made the
         // drill-down's total disagree with the average it came from.
@@ -52,7 +54,10 @@ struct AnalysisCategoryDetailView: View {
         var buckets: [Date: Double] = [:]
         for txn in all {
             guard let monthStart = calendar.dateInterval(of: .month, for: txn.date)?.start else { continue }
-            buckets[monthStart, default: 0] += txn.amount
+            buckets[monthStart, default: 0] += reimbursementIndex.effectiveExpenseAmount(
+                transactionID: txn.id,
+                originalAmount: txn.amount
+            )
         }
         let months = buckets
             .map { MerchantAnalytics.CategoryMonth(category: category, monthStart: $0.key, amount: $0.value) }
@@ -75,7 +80,12 @@ struct AnalysisCategoryDetailView: View {
         return Content(
             months: months,
             visible: sort(visible),
-            total: visible.reduce(0) { $0 + $1.amount },
+            total: visible.reduce(0) {
+                $0 + reimbursementIndex.effectiveExpenseAmount(
+                    transactionID: $1.id,
+                    originalAmount: $1.amount
+                )
+            },
             isFiltered: !selectedMonths.isEmpty || !query.isEmpty
         )
     }
@@ -125,7 +135,13 @@ struct AnalysisCategoryDetailView: View {
             Section {
                 ForEach(content.visible) { txn in
                     Button { detail = txn } label: {
-                        TransactionRow(txn: txn, category: category)
+                        TransactionRow(
+                            txn: txn,
+                            category: category,
+                            reimbursedAmount: ReimbursementAllocationIndex(
+                                reimbursementAllocations
+                            ).allocatedToExpense(txn.id)
+                        )
                     }
                     .buttonStyle(PressableStyle(scale: 0.98))
                 }

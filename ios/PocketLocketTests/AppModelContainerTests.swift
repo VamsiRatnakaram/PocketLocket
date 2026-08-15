@@ -30,6 +30,7 @@ final class AppModelContainerTests: XCTestCase {
             TransactionRecord.self,
             CategoryRule.self,
             MerchantGroupingRule.self,
+            ReimbursementAllocation.self,
             configurations: configuration
         )
 
@@ -44,6 +45,7 @@ final class AppModelContainerTests: XCTestCase {
             TransactionRecord.self,
             CategoryRule.self,
             MerchantGroupingRule.self,
+            ReimbursementAllocation.self,
             configurations: configuration
         )
         let context = container.mainContext
@@ -70,6 +72,11 @@ final class AppModelContainerTests: XCTestCase {
             pending: false, categoryPrimary: nil, categoryDetailed: nil, logoURL: nil,
             accountId: "manual-cash"
         ))
+        context.insert(ReimbursementAllocation(
+            sourceTransactionID: "sf-checking-t1",
+            expenseTransactionID: "manual-t1",
+            amount: 5
+        ))
         try context.save()
 
         try SimpleFINDataStore.deleteSyncedData(in: context)
@@ -78,6 +85,7 @@ final class AppModelContainerTests: XCTestCase {
         let transactionIDs = try context.fetch(FetchDescriptor<TransactionRecord>()).map(\.id)
         XCTAssertEqual(accountIDs, ["manual-cash"])
         XCTAssertEqual(transactionIDs, ["manual-t1"])
+        XCTAssertTrue(try context.fetch(FetchDescriptor<ReimbursementAllocation>()).isEmpty)
     }
 
     @MainActor
@@ -88,6 +96,7 @@ final class AppModelContainerTests: XCTestCase {
             TransactionRecord.self,
             CategoryRule.self,
             MerchantGroupingRule.self,
+            ReimbursementAllocation.self,
             configurations: configuration
         )
         let context = container.mainContext
