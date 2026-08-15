@@ -20,6 +20,9 @@ enum TransactionListBuilder {
         let transaction: TransactionRecord
         let category: SpendCategory
         let classification: Classification
+        let reimbursedAmount: Double
+        let reimbursementSourceAmount: Double
+        let effectiveAmount: Double
         var id: String { transaction.id }
     }
 
@@ -43,6 +46,7 @@ enum TransactionListBuilder {
     static func rows(
         from transactions: [TransactionRecord],
         criteria: Criteria,
+        reimbursementIndex: ReimbursementAllocationIndex = .empty,
         resolve: (TransactionRecord) -> SpendCategory
     ) -> [Row] {
         var rows: [Row] = []
@@ -68,6 +72,10 @@ enum TransactionListBuilder {
 
             let category = resolve(txn)
             let classification = classify(txn, category: category)
+            let effectiveAmount = reimbursementIndex.effectiveExpenseAmount(
+                transactionID: txn.id,
+                originalAmount: txn.amount
+            )
             switch criteria.type {
             case .all: break
             case .expenses: if classification != .expense { continue }
@@ -79,12 +87,12 @@ enum TransactionListBuilder {
             case .all: break
             case .counted:
                 if !SpendingAccountFilter.countsTowardBudget(
-                    category: category, amount: txn.amount,
+                    category: category, amount: effectiveAmount,
                     accountId: txn.accountId, excluded: criteria.excludedAccountIds
                 ) { continue }
             case .excluded:
                 if SpendingAccountFilter.countsTowardBudget(
-                    category: category, amount: txn.amount,
+                    category: category, amount: effectiveAmount,
                     accountId: txn.accountId, excluded: criteria.excludedAccountIds
                 ) { continue }
             }
@@ -92,7 +100,10 @@ enum TransactionListBuilder {
             rows.append(Row(
                 transaction: txn,
                 category: category,
-                classification: classification
+                classification: classification,
+                reimbursedAmount: reimbursementIndex.allocatedToExpense(txn.id),
+                reimbursementSourceAmount: reimbursementIndex.allocatedFromSource(txn.id),
+                effectiveAmount: effectiveAmount
             ))
         }
 
@@ -104,12 +115,18 @@ enum TransactionListBuilder {
         category: SpendCategory
     ) -> Classification {
         guard transaction.amount < 0 else { return .expense }
-        guard category.isSpending else { return .income }
-        if category != .other { return .returns }
 
         let descriptor = "\(transaction.name) \(transaction.merchantName ?? "")".lowercased()
         let returnMarkers = ["refund", "return", "returned", "reversal"]
-        return returnMarkers.contains { descriptor.contains($0) } ? .returns : .income
+        if returnMarkers.contains(where: descriptor.contains) { return .returns }
+
+        // A user may categorize a Zelle/Venmo repayment as Dining, Groceries,
+        // etc. That describes what the money was for, not a merchant return.
+        // Only explicit refund wording may promote peer-to-peer money to Return.
+        if MerchantHeuristics.isPeerToPeer(descriptor) { return .income }
+
+        guard category.isSpending, category != .other else { return .income }
+        return .returns
     }
 
     static func sort(_ rows: [Row], by order: TransactionsView.SortOrder) -> [Row] {

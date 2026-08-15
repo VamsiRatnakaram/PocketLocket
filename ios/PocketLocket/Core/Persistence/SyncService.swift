@@ -32,10 +32,21 @@ final class SyncService {
         // keeps going, and a fresh sync could start alongside it.
         let task = Task {
             defer { self.inFlight = nil }
-            try await self.refreshSimpleFIN(context: context)
-            // After new rows land, re-pair transfers across the whole history:
-            // the two legs of a card payoff routinely arrive in different syncs.
-            try TransferMatchService.recompute(in: context)
+            do {
+                try await self.refreshSimpleFIN(context: context)
+                // After new rows land, re-pair transfers across the whole
+                // history, then reconcile reimbursements against the same
+                // unsaved transaction state. Commit all three together.
+                try TransferMatchService.recompute(
+                    in: context,
+                    saveChanges: false
+                )
+                try ReimbursementAllocationService.reconcile(in: context)
+                try context.save()
+            } catch {
+                context.rollback()
+                throw error
+            }
         }
         inFlight = task
         try await task.value
@@ -95,7 +106,6 @@ final class SyncService {
                 )
             }
         }
-        try context.save()
     }
 
     @discardableResult
@@ -170,7 +180,17 @@ final class SyncService {
 enum SimpleFINDataStore {
     static func deleteSyncedData(in context: ModelContext) throws {
         let transactions = try context.fetch(FetchDescriptor<TransactionRecord>())
-        for transaction in transactions where transaction.plaidTransactionId.hasPrefix("sf-") {
+        let deletedTransactions = transactions.filter {
+            $0.plaidTransactionId.hasPrefix("sf-")
+        }
+        let deletedIDs = Set(deletedTransactions.map(\.id))
+        let allocations = try context.fetch(FetchDescriptor<ReimbursementAllocation>())
+        ReimbursementAllocationService.deleteAllocations(
+            referencing: deletedIDs,
+            from: allocations,
+            in: context
+        )
+        for transaction in deletedTransactions {
             context.delete(transaction)
         }
 

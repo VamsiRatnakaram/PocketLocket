@@ -71,4 +71,17 @@ final class MerchantDetailBuilderTests: XCTestCase {
         XCTAssertEqual(content.monthly.count, 2)
         XCTAssertEqual(content.monthly.map(\.amount).reduce(0, +), 30)
     }
+
+    func testBuilderUsesEffectiveReimbursedAmount() {
+        let expense = transaction(id: "target-1", name: "Target Cafe", amount: 30)
+        let content = MerchantDetailBuilder.build(
+            stats: stats,
+            transactions: [expense],
+            effectiveAmountFor: { _ in 10 },
+            categoryFor: { _ in .food }
+        )
+
+        XCTAssertEqual(content.items.first?.reimbursedAmount, 20)
+        XCTAssertEqual(content.monthly.first?.amount, 10)
+    }
 }

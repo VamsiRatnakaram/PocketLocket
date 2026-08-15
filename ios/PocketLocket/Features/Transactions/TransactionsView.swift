@@ -4,6 +4,7 @@ import SwiftData
 struct TransactionsView: View {
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
     @Query(sort: \AccountRecord.name) private var accounts: [AccountRecord]
     @Environment(\.modelContext) private var context
 
@@ -72,7 +73,24 @@ struct TransactionsView: View {
         txn.resolvedCategory(using: rules)
     }
 
+    private func accountLabel(for txn: TransactionRecord) -> String? {
+        guard let accountID = txn.accountId,
+              let account = accounts.first(where: { $0.id == accountID })
+        else { return nil }
+        let name = account.displayName
+        guard let mask = account.mask,
+              !mask.isEmpty,
+              !name.localizedCaseInsensitiveContains(mask)
+        else { return name }
+        return "\(name) ••••\(mask)"
+    }
+
     private func delete(_ txn: TransactionRecord) {
+        ReimbursementAllocationService.deleteAllocations(
+            referencing: [txn.id],
+            from: reimbursementAllocations,
+            in: context
+        )
         context.delete(txn)
         try? context.save()
     }
@@ -120,6 +138,7 @@ struct TransactionsView: View {
         var criteria: TransactionListBuilder.Criteria
         var dataHash: Int
         var rulesHash: Int
+        var reimbursementsHash: Int
     }
 
     /// The visible list, rebuilt only when the data or the criteria change.
@@ -133,10 +152,15 @@ struct TransactionsView: View {
         let key = RowsKey(
             criteria: criteria,
             dataHash: RecordHash.transactions(transactions),
-            rulesHash: RecordHash.rules(rules)
+            rulesHash: RecordHash.rules(rules),
+            reimbursementsHash: RecordHash.reimbursements(reimbursementAllocations)
         )
         return rowsCache.value(for: key) {
-            TransactionListBuilder.rows(from: transactions, criteria: criteria) {
+            TransactionListBuilder.rows(
+                from: transactions,
+                criteria: criteria,
+                reimbursementIndex: ReimbursementAllocationIndex(reimbursementAllocations)
+            ) {
                 $0.resolvedCategory(using: rules)
             }
         }
@@ -160,7 +184,13 @@ struct TransactionsView: View {
                                 Image(systemName: selectedTransactionIDs.contains(txn.id) ? "checkmark.circle.fill" : "circle")
                                     .font(.title3)
                                     .foregroundStyle(selectedTransactionIDs.contains(txn.id) ? Color.accentColor : Color.secondary)
-                                TransactionRow(txn: txn, category: row.category)
+                                TransactionRow(
+                                    txn: txn,
+                                    category: row.category,
+                                    reimbursedAmount: row.reimbursedAmount,
+                                    reimbursementSourceAmount: row.reimbursementSourceAmount,
+                                    accountLabel: accountLabel(for: txn)
+                                )
                             }
                             .contentShape(Rectangle())
                         }
@@ -168,7 +198,13 @@ struct TransactionsView: View {
                         .accessibilityLabel("\(selectedTransactionIDs.contains(txn.id) ? "Deselect" : "Select") \(txn.title)")
                     } else {
                         Button { detail = txn } label: {
-                            TransactionRow(txn: txn, category: row.category)
+                            TransactionRow(
+                                txn: txn,
+                                category: row.category,
+                                reimbursedAmount: row.reimbursedAmount,
+                                reimbursementSourceAmount: row.reimbursementSourceAmount,
+                                accountLabel: accountLabel(for: txn)
+                            )
                         }
                         .buttonStyle(PressableStyle(scale: 0.98))
                         .swipeActions(edge: .trailing) {
