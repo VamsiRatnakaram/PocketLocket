@@ -16,6 +16,7 @@ struct TransactionDetailView: View {
     @State private var selected: SpendCategory
     @State private var scope: CategoryAssignment.Scope
     @State private var feedback = 0
+    @State private var resolvedMatchKey: String?
     /// What the scope picker started on, so dismissing an untouched sheet
     /// writes nothing.
     private let initialScope: CategoryAssignment.Scope
@@ -57,6 +58,9 @@ struct TransactionDetailView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .sensoryFeedback(.selection, trigger: feedback)
+            .task {
+                resolvedMatchKey = CategoryAssignment.matchKey(for: txn, in: allTransactions)
+            }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -195,8 +199,11 @@ struct TransactionDetailView: View {
         return matchKey.prefix(limit).trimmingCharacters(in: .whitespaces) + "…"
     }
 
+    /// Resolved once rather than per render: folding the ledger's descriptors
+    /// into merchant identities is far too much work for a computed property
+    /// SwiftUI re-evaluates on every state change.
     private var matchKey: String {
-        CategoryAssignment.matchKey(for: txn)
+        resolvedMatchKey ?? CategoryAssignment.matchKey(for: txn)
     }
 
     private var amountText: String {
@@ -217,6 +224,8 @@ struct TransactionDetailView: View {
         let changedCategory = selected != currentCategory
         let changedScope = scope != initialScope
         guard changedCategory || changedScope else { return }
-        try? CategoryAssignment.assign(selected, to: [txn], using: rules, in: context, scope: scope)
+        try? CategoryAssignment.assign(
+            selected, to: [txn], using: rules, in: context, scope: scope, ledger: allTransactions
+        )
     }
 }

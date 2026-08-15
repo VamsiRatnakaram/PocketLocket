@@ -31,6 +31,11 @@ final class BackupServiceTests: XCTestCase {
     func testEncryptedRoundTripPreservesData() throws {
         let source = try makeContext()
         try seed(source)
+        let sourceTransaction = try XCTUnwrap(
+            source.fetch(FetchDescriptor<TransactionRecord>()).first
+        )
+        sourceTransaction.categoryOverride = .food
+        try source.save()
 
         let file = try BackupService.exportEncrypted(password: "hunter2", context: source)
 
@@ -44,6 +49,10 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(try dest.fetch(FetchDescriptor<TransactionRecord>()).count, 1)
         XCTAssertEqual(try dest.fetch(FetchDescriptor<AccountRecord>()).count, 1)
         XCTAssertEqual(try dest.fetch(FetchDescriptor<CategoryRule>()).count, 1)
+        let restoredTransaction = try XCTUnwrap(
+            dest.fetch(FetchDescriptor<TransactionRecord>()).first
+        )
+        XCTAssertEqual(restoredTransaction.categoryOverride, .food)
     }
 
     func testWrongPasswordFails() throws {

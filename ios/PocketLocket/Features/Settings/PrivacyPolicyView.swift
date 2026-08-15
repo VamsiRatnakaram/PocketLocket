@@ -30,7 +30,7 @@ struct PrivacyPolicyView: View {
 
             Section("Backups and control") {
                 Text("Encrypted backups are created only when you request them. The app saves them to the location you choose, and the backup password is not retained by the app.")
-                Text("Use Settings > Reset local data to remove Budget's local accounts, transactions, rules, and SimpleFIN connection from this device. You can also revoke SimpleFIN access through SimpleFIN.")
+                Text("Use Settings > Reset local data to remove Budget's local accounts, transactions, and rules from this device, choosing whether to keep or remove the SimpleFIN connection. You can also revoke SimpleFIN access through SimpleFIN.")
             }
 
             Section("Contact and changes") {

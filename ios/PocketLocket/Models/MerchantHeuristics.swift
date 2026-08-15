@@ -17,8 +17,7 @@ enum MerchantHeuristics {
         ("ach debit", .transfer), ("ach credit", .transfer), ("web pmt", .transfer),
         ("online transfer", .transfer), ("internal transfer", .transfer), ("funds transfer", .transfer),
         ("wire transfer", .transfer), ("bank transfer", .transfer), ("transfer to", .transfer),
-        ("transfer from", .transfer), ("xfer", .transfer), ("zelle", .transfer), ("venmo", .transfer),
-        ("cash app", .transfer), ("cashapp", .transfer), ("withdrawal", .transfer),
+        ("transfer from", .transfer), ("xfer", .transfer), ("withdrawal", .transfer),
         ("atm withdrawal", .transfer), ("to savings", .transfer), ("from savings", .transfer),
         ("robinhood", .transfer), ("coinbase", .transfer), ("fidelity", .transfer),
         ("vanguard", .transfer), ("charles schwab", .transfer), ("wealthfront", .transfer),
@@ -75,6 +74,16 @@ enum MerchantHeuristics {
         ("ezpass", .transport), ("mta", .transport), ("bart", .transport), ("caltrain", .transport),
         ("transit", .transport), ("autozone", .transport), ("o'reilly", .transport),
         ("jiffy lube", .transport), ("car wash", .transport),
+
+        // Shared scooters and bikes. "lime" and "spin" are also ordinary
+        // words, so the restaurant names that contain them are listed first —
+        // the table is first-match-wins over contiguous tokens.
+        ("lime leaf", .food), ("lime fresh", .food), ("key lime", .food),
+        ("spin pizza", .food), ("bird dog", .food),
+        ("lime", .transport), ("limebike", .transport), ("bird rides", .transport),
+        ("bird app", .transport), ("veo ride", .transport), ("citi bike", .transport),
+        ("citibike", .transport), ("divvy", .transport), ("bluebikes", .transport),
+        ("bay wheels", .transport), ("scooter", .transport),
 
         // 6) Travel.
         ("delta", .travel), ("united air", .travel), ("american air", .travel),
@@ -312,13 +321,25 @@ enum MerchantHeuristics {
     }
 
     private static func category(forTokens tokens: [String]) -> SpendCategory? {
+        var match: SpendCategory?
         for entry in tokenizedTable where contains(entry.tokens, in: tokens) {
-            return entry.category
+            match = entry.category
+            break
         }
-        for fallback in processorFallbacks where contains(fallback.tokens, in: tokens) {
-            return fallback.category
+        if match == nil {
+            for fallback in processorFallbacks where contains(fallback.tokens, in: tokens) {
+                match = fallback.category
+                break
+            }
         }
-        return nil
+        // A peer-to-peer rail only decides the category when nothing else in
+        // the descriptor did. "PAYPAL *NETFLIX.COM" names a real merchant and
+        // keeps it; "VENMO PAYMENT ACH DEBIT" names none, so the rail words
+        // must not be allowed to make it a transfer.
+        if PeerToPeerPayments.isPlatform(tokens: tokens), match == nil || match == .transfer {
+            return PeerToPeerPayments.category(forTokens: tokens)
+        }
+        return match
     }
 
     /// Peer-to-peer payment apps, where the descriptor names the platform but
@@ -351,7 +372,7 @@ enum MerchantHeuristics {
             }
         }
         let match = category(forTokens: tokens(in: haystack))
-        cacheLock.lock()
+    cacheLock.lock()
         cache[cacheKey] = match.map(CachedCategory.match) ?? .unmatched
         cacheLock.unlock()
         return match
