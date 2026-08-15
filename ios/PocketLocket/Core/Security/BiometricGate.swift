@@ -54,7 +54,7 @@ final class BiometricGate {
         var error: NSError?
         let policy: LAPolicy = .deviceOwnerAuthentication
         guard context.canEvaluatePolicy(policy, error: &error) else {
-            if authenticationAttemptID == attemptID { state = .unavailable }
+            if authenticationAttemptID == attemptID { state = Self.stateForUnevaluablePolicy(error) }
             return
         }
 
@@ -66,6 +66,19 @@ final class BiometricGate {
         } catch {
             if authenticationAttemptID == attemptID { state = .locked }
         }
+    }
+
+    /// A device with no passcode set can never satisfy
+    /// `.deviceOwnerAuthentication`, so refusing to open would brick the app —
+    /// hence `.unavailable`. Every *other* failure is transient (a context
+    /// invalidated by backgrounding, a non-interactive evaluation, an app that
+    /// isn't frontmost yet), and treating those as unavailable silently handed
+    /// out the entire ledger without any authentication. They stay locked so
+    /// the next attempt can prompt properly.
+    static func stateForUnevaluablePolicy(_ error: NSError?) -> State {
+        guard let error, error.domain == LAErrorDomain,
+              error.code == LAError.passcodeNotSet.rawValue else { return .locked }
+        return .unavailable
     }
 
     func lock() {
