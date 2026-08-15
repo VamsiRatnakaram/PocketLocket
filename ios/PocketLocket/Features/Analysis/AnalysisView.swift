@@ -9,6 +9,35 @@ private enum CategoryComparisonMode: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+private struct CategoryComparisonContext {
+    let monthDate: Date
+
+    var monthLabel: String {
+        monthDate.formatted(.dateTime.month(.wide).year())
+    }
+
+    var isCurrentMonth: Bool {
+        Calendar.current.isDate(
+            monthDate,
+            equalTo: Date(),
+            toGranularity: .month
+        )
+    }
+
+    var previousMonthDate: Date {
+        Calendar.current.date(byAdding: .month, value: -1, to: monthDate)
+            ?? monthDate
+    }
+
+    var previousMonthLabel: String {
+        previousMonthDate.formatted(.dateTime.month(.wide).year())
+    }
+
+    var previousMonthShortLabel: String {
+        previousMonthDate.formatted(.dateTime.month(.abbreviated))
+    }
+}
+
 private enum SpendingChartMode: String, CaseIterable, Identifiable {
     case cumulative
     case rolling30Day
@@ -79,14 +108,12 @@ struct AnalysisView: View {
                                 suggestions: savingsCoordinator.suggestions ?? [],
                                 action: showSavingsPlan
                             )
-                            categorySpendChart(snapshot)
                             categoryAveragesList(snapshot)
+                            categorySpendChart(snapshot)
+                            analysisPeriodControl
                             categoryFilterRow(snapshot)
                             merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: snapshot.topByFrequency, showsVisits: true)
                             merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: snapshot.topBySpend, showsVisits: false)
-                            if !snapshot.recurring.isEmpty {
-                                merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: snapshot.recurring, showsVisits: true)
-                            }
                         }
                         .padding()
                     }
@@ -169,6 +196,38 @@ struct AnalysisView: View {
     /// stable across range switches instead of being reassigned from whichever
     /// categories happen to appear in the current window.
     private static let spendingCategoryOrder: [SpendCategory] = SpendCategory.allCases.filter { $0.isSpending }
+
+    private var analysisPeriodControl: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Analysis period", systemImage: "calendar")
+                .font(.headline)
+
+            AnalysisWindowBar(
+                selection: windowFractions,
+                domain: windowDomain,
+                onChange: { fractions in
+                    selectedChartDate = nil
+                    previewWindow = AnalysisDateWindow.interval(
+                        for: fractions,
+                        in: windowDomain
+                    )
+                }
+            ) { fractions in
+                selectedChartDate = nil
+                selectedWindow = AnalysisDateWindow.interval(
+                    for: fractions,
+                    in: windowDomain
+                )
+                previewWindow = nil
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color(.secondarySystemBackground),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+    }
 
     @ViewBuilder
     private func categorySpendChart(_ snapshot: AnalysisSnapshot) -> some View {
@@ -292,19 +351,6 @@ struct AnalysisView: View {
                     onToggle: toggleChartCategory,
                     onShowAll: { hiddenChartCategories.removeAll() }
                 )
-                AnalysisWindowBar(
-                    selection: windowFractions,
-                    domain: windowDomain,
-                    onChange: { fractions in
-                        selectedChartDate = nil
-                        previewWindow = AnalysisDateWindow.interval(for: fractions, in: windowDomain)
-                    }
-                ) { fractions in
-                    selectedChartDate = nil
-                    selectedWindow = AnalysisDateWindow.interval(for: fractions, in: windowDomain)
-                    previewWindow = nil
-                }
-                .padding(.top, 4)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -334,20 +380,41 @@ struct AnalysisView: View {
     @ViewBuilder
     private func categoryAveragesList(_ snapshot: AnalysisSnapshot) -> some View {
         let categoryAverages = snapshot.categoryAverages
+        let comparison = CategoryComparisonContext(
+            monthDate: snapshot.comparisonMonthStart
+                ?? Calendar.current.dateInterval(of: .month, for: Date())?.start
+                ?? Date()
+        )
         if !categoryAverages.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("\(comparisonMonthLabel) Category Spending")
-                    .font(.headline)
-                Picker("Comparison baseline", selection: $categoryComparisonMode) {
-                    Text("Overall average").tag(CategoryComparisonMode.monthlyAverage)
-                    Text("Previous month").tag(CategoryComparisonMode.previousMonth)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Compare \(comparison.monthLabel) against")
+                        .font(.headline)
+                    Picker(
+                        "Compare \(comparison.monthLabel) spending against",
+                        selection: $categoryComparisonMode
+                    ) {
+                        Text("Prior average").tag(CategoryComparisonMode.monthlyAverage)
+                        Text("Previous month").tag(CategoryComparisonMode.previousMonth)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(comparisonBaselineDescription(
+                        priorMonthCount: categoryAverages.first?.priorMonthCount ?? 0,
+                        previousMonthIsComplete:
+                            categoryAverages.first?.previousMonthIsComplete ?? false,
+                        comparison: comparison
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                .pickerStyle(.segmented)
+
                 ForEach(categoryAverages.prefix(6)) { average in
                     Button { selectedCategory = average.category } label: {
                         CategoryAverageRow(
                             average: average,
-                            comparisonMode: categoryComparisonMode
+                            comparisonMode: categoryComparisonMode,
+                            previousMonthLabel: comparison.previousMonthShortLabel
                         )
                     }
                     .buttonStyle(PressableStyle(scale: 0.98))
@@ -362,9 +429,33 @@ struct AnalysisView: View {
         }
     }
 
-    private var comparisonMonthLabel: String {
-        analysisWindow.end.addingTimeInterval(-1)
-            .formatted(.dateTime.month(.wide).year())
+    private func comparisonBaselineDescription(
+        priorMonthCount: Int,
+        previousMonthIsComplete: Bool,
+        comparison: CategoryComparisonContext
+    ) -> String {
+        let currentMonthContext = comparison.isCurrentMonth
+            ? "\(comparison.monthLabel) spending is month to date. "
+            : ""
+        switch categoryComparisonMode {
+        case .monthlyAverage:
+            guard priorMonthCount > 0 else {
+                return currentMonthContext
+                    + "No complete prior months are available in your history."
+            }
+            let months = priorMonthCount == 1
+                ? "the 1 complete prior month"
+                : "all \(priorMonthCount) complete prior months"
+            return currentMonthContext
+                + "Comparison across \(months) in your available history."
+        case .previousMonth:
+            guard previousMonthIsComplete else {
+                return currentMonthContext + "\(comparison.previousMonthLabel) is incomplete, "
+                    + "so no comparison is available."
+            }
+            return currentMonthContext
+                + "Direct comparison with \(comparison.previousMonthLabel)."
+        }
     }
 
     private func merchantSection(
@@ -723,6 +814,7 @@ private struct MerchantRow: View {
 private struct CategoryAverageRow: View {
     let average: MerchantAnalytics.CategoryAverage
     let comparisonMode: CategoryComparisonMode
+    let previousMonthLabel: String
 
     private var baselineAmount: Double {
         switch comparisonMode {
@@ -748,16 +840,9 @@ private struct CategoryAverageRow: View {
     private var baselineLabel: String {
         switch comparisonMode {
         case .monthlyAverage:
-            return "\(CurrencyFormatter.string(baselineAmount))/mo average"
+            return "\(CurrencyFormatter.compact(baselineAmount)) avg"
         case .previousMonth:
-            return "\(CurrencyFormatter.string(baselineAmount)) previous month"
-        }
-    }
-
-    private var missingBaselineLabel: String {
-        switch comparisonMode {
-        case .monthlyAverage: "No full-month baseline"
-        case .previousMonth: "Previous month incomplete"
+            return "\(CurrencyFormatter.compact(baselineAmount)) \(previousMonthLabel)"
         }
     }
 
@@ -774,7 +859,7 @@ private struct CategoryAverageRow: View {
                 .lineLimit(1)
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(CurrencyFormatter.string(average.currentMonthSpend))
+                Text(CurrencyFormatter.compact(average.currentMonthSpend))
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
                 if hasBaseline {
@@ -782,10 +867,6 @@ private struct CategoryAverageRow: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
-                } else {
-                    Text(missingBaselineLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
             }
             if hasBaseline {

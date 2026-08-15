@@ -27,10 +27,6 @@ final class AnalysisSnapshotTests: XCTestCase {
         XCTAssertFalse(snapshot.isEmpty)
         XCTAssertEqual(snapshot.topByFrequency.map(\.id), MerchantAnalytics.topByFrequency(stats, limit: 8).map(\.id))
         XCTAssertEqual(snapshot.topBySpend.map(\.id), MerchantAnalytics.topBySpend(stats, limit: 8).map(\.id))
-        XCTAssertEqual(
-            snapshot.recurring.map(\.id),
-            MerchantAnalytics.recurringMerchants(sample, minMonths: 3).map(\.id)
-        )
         XCTAssertEqual(snapshot.categoryAverages.map(\.id), MerchantAnalytics.categoryAverages(sample).map(\.id))
         XCTAssertEqual(snapshot.categoryMonthly.count, MerchantAnalytics.categoryTrendTotals(sample).count)
     }
@@ -88,6 +84,47 @@ final class AnalysisSnapshotTests: XCTestCase {
             filtered.categoryMonthly.contains { $0.category == .food },
             "The chart keeps every category's line so its height can't change"
         )
+    }
+
+    func testAnalysisWindowDoesNotChangeCurrentMonthComparison() throws {
+        let inputs = [
+            input("Cafe", 100, .food, 1),
+            input("Cafe", 200, .food, 2),
+            input("Cafe", 300, .food, 3),
+        ]
+        let januaryOnly = DateInterval(start: date(1), end: date(2))
+        let februaryOnly = DateInterval(start: date(2), end: date(3))
+
+        let januarySnapshot = AnalysisSnapshot.make(
+            inputs: inputs,
+            window: januaryOnly,
+            categoryFilter: nil,
+            chartEnd: date(3, 15)
+        )
+        let februarySnapshot = AnalysisSnapshot.make(
+            inputs: inputs,
+            window: februaryOnly,
+            categoryFilter: nil,
+            chartEnd: date(3, 15)
+        )
+
+        let januaryComparison = try XCTUnwrap(januarySnapshot.categoryAverages.first)
+        let februaryComparison = try XCTUnwrap(februarySnapshot.categoryAverages.first)
+        XCTAssertEqual(januarySnapshot.comparisonMonthStart, date(3))
+        XCTAssertEqual(februarySnapshot.comparisonMonthStart, date(3))
+        XCTAssertEqual(januaryComparison.currentMonthSpend, 300, accuracy: 0.001)
+        XCTAssertEqual(januaryComparison.priorMonthsAverage, 150, accuracy: 0.001)
+        XCTAssertEqual(
+            januaryComparison.currentMonthSpend,
+            februaryComparison.currentMonthSpend,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            januaryComparison.priorMonthsAverage,
+            februaryComparison.priorMonthsAverage,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(januaryComparison.priorMonthCount, februaryComparison.priorMonthCount)
     }
 
     func testEmptySelectedWindowKeepsFullDomainChartAvailable() {
