@@ -9,6 +9,35 @@ private enum CategoryComparisonMode: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+private struct CategoryComparisonContext {
+    let monthDate: Date
+
+    var monthLabel: String {
+        monthDate.formatted(.dateTime.month(.wide).year())
+    }
+
+    var isCurrentMonth: Bool {
+        Calendar.current.isDate(
+            monthDate,
+            equalTo: Date(),
+            toGranularity: .month
+        )
+    }
+
+    var previousMonthDate: Date {
+        Calendar.current.date(byAdding: .month, value: -1, to: monthDate)
+            ?? monthDate
+    }
+
+    var previousMonthLabel: String {
+        previousMonthDate.formatted(.dateTime.month(.wide).year())
+    }
+
+    var previousMonthShortLabel: String {
+        previousMonthDate.formatted(.dateTime.month(.abbreviated))
+    }
+}
+
 private enum SpendingChartMode: String, CaseIterable, Identifiable {
     case cumulative
     case rolling30Day
@@ -79,15 +108,12 @@ struct AnalysisView: View {
                                 suggestions: savingsCoordinator.suggestions ?? [],
                                 action: showSavingsPlan
                             )
-                            analysisPeriodControl
-                            categorySpendChart(snapshot)
                             categoryAveragesList(snapshot)
+                            categorySpendChart(snapshot)
+                            analysisPeriodControl
                             categoryFilterRow(snapshot)
                             merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: snapshot.topByFrequency, showsVisits: true)
                             merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: snapshot.topBySpend, showsVisits: false)
-                            if !snapshot.recurring.isEmpty {
-                                merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: snapshot.recurring, showsVisits: true)
-                            }
                         }
                         .padding()
                     }
@@ -176,8 +202,7 @@ struct AnalysisView: View {
             Label("Analysis period", systemImage: "calendar")
                 .font(.headline)
             Text(
-                "Controls category spending, Most frequent, Biggest spend, "
-                    + "and Recurring habits."
+                "Controls cumulative spending, Most frequent, and Biggest spend."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -364,23 +389,29 @@ struct AnalysisView: View {
     @ViewBuilder
     private func categoryAveragesList(_ snapshot: AnalysisSnapshot) -> some View {
         let categoryAverages = snapshot.categoryAverages
+        let comparison = CategoryComparisonContext(
+            monthDate: snapshot.comparisonMonthStart
+                ?? Calendar.current.dateInterval(of: .month, for: Date())?.start
+                ?? Date()
+        )
         if !categoryAverages.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Compare \(comparisonMonthLabel) against")
-                    .font(.headline)
+                    Text("Compare \(comparison.monthLabel) against")
+                        .font(.headline)
                     Picker(
-                    "Compare \(comparisonMonthLabel) spending against",
-                    selection: $categoryComparisonMode
+                        "Compare \(comparison.monthLabel) spending against",
+                        selection: $categoryComparisonMode
                     ) {
-                    Text("Prior average").tag(CategoryComparisonMode.monthlyAverage)
-                    Text("Previous month").tag(CategoryComparisonMode.previousMonth)
+                        Text("Prior average").tag(CategoryComparisonMode.monthlyAverage)
+                        Text("Previous month").tag(CategoryComparisonMode.previousMonth)
                     }
                     .pickerStyle(.segmented)
                     Text(comparisonBaselineDescription(
-                    priorMonthCount: categoryAverages.first?.priorMonthCount ?? 0,
-                    previousMonthIsComplete:
-                        categoryAverages.first?.previousMonthIsComplete ?? false
+                        priorMonthCount: categoryAverages.first?.priorMonthCount ?? 0,
+                        previousMonthIsComplete:
+                            categoryAverages.first?.previousMonthIsComplete ?? false,
+                        comparison: comparison
                     ))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -389,11 +420,11 @@ struct AnalysisView: View {
 
                 ForEach(categoryAverages.prefix(6)) { average in
                     Button { selectedCategory = average.category } label: {
-                    CategoryAverageRow(
-                        average: average,
-                        comparisonMode: categoryComparisonMode,
-                        previousMonthLabel: previousComparisonMonthShortLabel
-                    )
+                        CategoryAverageRow(
+                            average: average,
+                            comparisonMode: categoryComparisonMode,
+                            previousMonthLabel: comparison.previousMonthShortLabel
+                        )
                     }
                     .buttonStyle(PressableStyle(scale: 0.98))
                     if average.id != categoryAverages.prefix(6).last?.id {
@@ -407,65 +438,32 @@ struct AnalysisView: View {
         }
     }
 
-    private var comparisonMonthLabel: String {
-        comparisonMonthDate.formatted(.dateTime.month(.wide).year())
-    }
-
-    private var comparisonMonthDate: Date {
-        analysisWindow.end.addingTimeInterval(-1)
-    }
-
-    private var comparisonMonthIsCurrent: Bool {
-        Calendar.current.isDate(
-            comparisonMonthDate,
-            equalTo: Date(),
-            toGranularity: .month
-        )
-    }
-
-    private var previousComparisonMonthLabel: String {
-        let previous = Calendar.current.date(
-            byAdding: .month,
-            value: -1,
-            to: comparisonMonthDate
-        ) ?? comparisonMonthDate
-        return previous.formatted(.dateTime.month(.wide).year())
-    }
-
-    private var previousComparisonMonthShortLabel: String {
-        let previous = Calendar.current.date(
-            byAdding: .month,
-            value: -1,
-            to: comparisonMonthDate
-        ) ?? comparisonMonthDate
-        return previous.formatted(.dateTime.month(.abbreviated))
-    }
-
     private func comparisonBaselineDescription(
         priorMonthCount: Int,
-        previousMonthIsComplete: Bool
+        previousMonthIsComplete: Bool,
+        comparison: CategoryComparisonContext
     ) -> String {
-        let currentMonthContext = comparisonMonthIsCurrent
-            ? "\(comparisonMonthLabel) spending is month to date. "
+        let currentMonthContext = comparison.isCurrentMonth
+            ? "\(comparison.monthLabel) spending is month to date. "
             : ""
         switch categoryComparisonMode {
         case .monthlyAverage:
             guard priorMonthCount > 0 else {
                 return currentMonthContext
-                    + "No complete prior months are available in the selected range."
+                    + "No complete prior months are available in your history."
             }
             let months = priorMonthCount == 1
                 ? "the 1 complete prior month"
                 : "all \(priorMonthCount) complete prior months"
             return currentMonthContext
-                + "Monthly average across \(months) in the selected range."
+                + "Monthly average across \(months) in your available history."
         case .previousMonth:
             guard previousMonthIsComplete else {
-                return currentMonthContext + "\(previousComparisonMonthLabel) is incomplete, "
+                return currentMonthContext + "\(comparison.previousMonthLabel) is incomplete, "
                     + "so no comparison is available."
             }
             return currentMonthContext
-                + "Direct comparison with \(previousComparisonMonthLabel)."
+                + "Direct comparison with \(comparison.previousMonthLabel)."
         }
     }
 

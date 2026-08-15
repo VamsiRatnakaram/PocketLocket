@@ -3,9 +3,8 @@ import Foundation
 /// Everything the Analysis tab renders, computed in a single pass.
 ///
 /// Previously each section was a separate computed property on the view, so a
-/// single `body` evaluation ran `merchantStats` three times (unfiltered,
-/// filtered, and again inside `recurringMerchants`) and re-resolved every
-/// transaction's category several times over — and SwiftUI re-evaluates `body`
+/// single `body` evaluation ran merchant grouping and category resolution
+/// several times over — and SwiftUI re-evaluates `body`
 /// many times per tab load. Bundling the results into one value lets the view
 /// compute once per *data* change instead of once per render pass.
 struct AnalysisSnapshot: Sendable {
@@ -13,7 +12,7 @@ struct AnalysisSnapshot: Sendable {
     var availableCategories: [SpendCategory] = []
     var topByFrequency: [MerchantAnalytics.MerchantStats] = []
     var topBySpend: [MerchantAnalytics.MerchantStats] = []
-    var recurring: [MerchantAnalytics.MerchantStats] = []
+    var comparisonMonthStart: Date?
     var categoryAverages: [MerchantAnalytics.CategoryAverage] = []
     var categoryMonthly: [MerchantAnalytics.CategoryMonth] = []
     var categoryCumulative: [MerchantAnalytics.CategoryMonth] = []
@@ -24,10 +23,27 @@ struct AnalysisSnapshot: Sendable {
         categoryFilter: SpendCategory?,
         chartEnd: Date? = nil,
         groupingRules: [MerchantGroupingRuleSpec] = [],
-        merchantLimit: Int = 8,
-        minRecurringMonths: Int = 3
+        merchantLimit: Int = 8
     ) -> AnalysisSnapshot {
+        let calendar = Calendar.current
         let dataCoverageStart = inputs.map(\.date).min()
+        let comparisonReference = chartEnd ?? inputs.map(\.date).max()
+        let comparisonMonth = comparisonReference.flatMap {
+            calendar.dateInterval(of: .month, for: $0)
+        }
+        let comparisonWindow: DateInterval? = {
+            guard let dataCoverageStart,
+                  let coverageMonth = calendar.dateInterval(
+                      of: .month,
+                      for: dataCoverageStart
+                  ),
+                  let comparisonMonth
+            else { return nil }
+            return DateInterval(
+                start: coverageMonth.start,
+                end: comparisonMonth.end
+            )
+        }()
         let selectedEnd = window?.end.addingTimeInterval(-1)
         let cumulativeEnd = [chartEnd, selectedEnd].compactMap { $0 }.min()
         let selectedInputs = window.map { interval in
@@ -63,21 +79,13 @@ struct AnalysisSnapshot: Sendable {
             availableCategories: available,
             topByFrequency: MerchantAnalytics.topByFrequency(filteredStats, limit: merchantLimit),
             topBySpend: MerchantAnalytics.topBySpend(filteredStats, limit: merchantLimit),
-            recurring: MerchantAnalytics.recurringMerchants(
-                filteredInputs,
-                minMonths: minRecurringMonths,
-                stats: filteredStats,
-                groupingRules: groupingRules
-            ),
-            // Deliberately unfiltered. These two drive the chart and the
-            // averages list, which render *above* the category chips — letting
-            // the filter resize them meant tapping a chip collapsed the chart
-            // to a single line, shrank the list, and yanked the chip row out
-            // from under your finger. The filter scopes the merchant sections
-            // below it; the chart has its own tap-to-hide legend for focus.
+            // Current-month comparison is intentionally independent of the
+            // Analysis period. That range scopes the chart and merchant
+            // sections; moving it must not turn "Compare August" into June.
+            comparisonMonthStart: comparisonMonth?.start,
             categoryAverages: MerchantAnalytics.categoryAverages(
-                selectedInputs,
-                window: window,
+                inputs,
+                window: comparisonWindow,
                 dataCoverageStart: dataCoverageStart
             ),
             categoryMonthly: MerchantAnalytics.categoryTrendTotals(inputs, through: chartEnd),
