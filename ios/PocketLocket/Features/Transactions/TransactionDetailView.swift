@@ -84,6 +84,7 @@ struct TransactionDetailView: View {
                     transferMatchNote
                     categoryGrid
                     reimbursementNote
+                    merchantGroupingButton
                 }
                 .padding(16)
             }
@@ -95,6 +96,9 @@ struct TransactionDetailView: View {
             .sensoryFeedback(.selection, trigger: feedback)
             .task(id: assignmentPreparationKey) {
                 prepareAssignment(for: assignmentPreparationKey)
+            }
+            .onChange(of: txn.id, initial: true) {
+                isTitleExpanded = false
             }
             .alert(
                 "Couldn’t Update Category",
@@ -111,9 +115,6 @@ struct TransactionDetailView: View {
             } message: {
                 Text(assignmentErrorMessage ?? "Please try again.")
             }
-        }
-        .adaptiveSafeAreaBar(edge: .bottom, spacing: 0) {
-            merchantGroupingButton
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -151,26 +152,27 @@ struct TransactionDetailView: View {
                     .symbolEffect(.bounce, value: selected)
             }
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(txn.title)
-                        .font(.headline)
-                        .lineLimit(isTitleExpanded ? nil : 2)
-                    Image(
-                        systemName: isTitleExpanded
-                            ? "chevron.up"
-                            : "chevron.down"
-                    )
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
+                Button {
                     withAnimation(.snappy(duration: 0.18)) {
                         isTitleExpanded.toggle()
                     }
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(txn.title)
+                            .font(.headline)
+                            .lineLimit(isTitleExpanded ? nil : 2)
+                            .multilineTextAlignment(.leading)
+                        Image(
+                            systemName: isTitleExpanded
+                                ? "chevron.up"
+                                : "chevron.down"
+                        )
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
+                .buttonStyle(.plain)
                 .accessibilityHint(
                     isTitleExpanded
                         ? "Collapses the transaction name"
@@ -329,8 +331,6 @@ struct TransactionDetailView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 
     /// Lets a choice apply to one transaction instead of every transaction from
