@@ -201,11 +201,6 @@ struct AnalysisView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Analysis period", systemImage: "calendar")
                 .font(.headline)
-            Text(
-                "Controls cumulative spending, Most frequent, and Biggest spend."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
 
             AnalysisWindowBar(
                 selection: windowFractions,
@@ -225,10 +220,6 @@ struct AnalysisView: View {
                 )
                 previewWindow = nil
             }
-
-            Text("Drag either handle to resize; drag the blue range to move it.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -456,7 +447,7 @@ struct AnalysisView: View {
                 ? "the 1 complete prior month"
                 : "all \(priorMonthCount) complete prior months"
             return currentMonthContext
-                + "Monthly average across \(months) in your available history."
+                + "Comparison across \(months) in your available history."
         case .previousMonth:
             guard previousMonthIsComplete else {
                 return currentMonthContext + "\(comparison.previousMonthLabel) is incomplete, "
