@@ -1,6 +1,6 @@
 import Foundation
 
-/// Caches the Save tab's suggestions.
+/// Main-actor memo for completed Save suggestions.
 ///
 /// `SavingsAdvisor` input building is the expensive part of that tab: it walks
 /// two months of transactions and calls `resolvedCategory(using:)` and
@@ -9,10 +9,9 @@ import Foundation
 /// every keystroke in the "Ask PocketLocket" field, so typing a question
 /// recategorized the whole month once per character.
 ///
-/// Shared (rather than `@State` on the view) so the result also survives the
-/// Analysis/Save segmented switch, which tears the view down entirely. That
-/// mirrors `AnalysisSnapshotCoordinator.shared`, which is why flipping to
-/// Analysis and back is already cheap in that direction.
+/// Shared so completed work survives leaving this tab or rebuilding its view
+/// hierarchy. Expensive input construction now happens in
+/// `SavingsSuggestionsEngine`; this cache only publishes finished values.
 ///
 /// Deliberately *not* `@Observable`: reads happen during `body`, and publishing
 /// a change from there would invalidate the view that just read it.
@@ -20,7 +19,7 @@ import Foundation
 final class SavingsSuggestionsCache {
     static let shared = SavingsSuggestionsCache()
 
-    struct InputsKey: Equatable {
+    struct InputsKey: Equatable, Sendable {
         var dataHash: Int
         var rulesHash: Int
         var excludedAccountsRaw: String
@@ -33,17 +32,18 @@ final class SavingsSuggestionsCache {
     private var key: InputsKey?
     private var cached: [SavingsSuggestion] = []
 
-    /// Number of times `compute` actually ran. Test-only visibility into
-    /// whether the cache is doing its job.
+    /// Number of completed values stored. Test-only visibility into whether
+    /// the coordinator is doing duplicate work.
     private(set) var missCount = 0
 
-    func suggestions(for key: InputsKey, compute: () -> [SavingsSuggestion]) -> [SavingsSuggestion] {
-        if self.key == key { return cached }
-        let value = compute()
+    func value(for key: InputsKey) -> [SavingsSuggestion]? {
+        self.key == key ? cached : nil
+    }
+
+    func store(_ suggestions: [SavingsSuggestion], for key: InputsKey) {
         self.key = key
-        cached = value
+        cached = suggestions
         missCount += 1
-        return value
     }
 
     func reset() {

@@ -19,6 +19,7 @@ enum RecordHash {
             hasher.combine(txn.id)
             hasher.combine(txn.amount)
             hasher.combine(txn.date)
+            hasher.combine(txn.isoCurrencyCode)
             // Both, not `title`. `title` collapses to `merchantName` whenever
             // one is set, which would hide an edit to `name` — and `name`
             // feeds both category resolution and search, so the cache would

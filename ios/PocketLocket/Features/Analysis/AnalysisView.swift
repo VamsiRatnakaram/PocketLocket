@@ -6,15 +6,12 @@ import Charts
 /// category trends — "how many times have I eaten here", "average grocery
 /// spend", "businesses I frequent" — computed entirely on-device.
 struct AnalysisView: View {
-    /// Rendered at the top of the scroll content so it scrolls away, rather
-    /// than being pinned above this view by the parent.
-    var segmentPicker: AnalysisSegmentPicker?
+    var isActive = true
 
-    @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
-    @Query private var rules: [CategoryRule]
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
 
     @State private var range: AnalysisTimeRange = .twelveMonths
+    @State private var availableRanges = AnalysisTimeRange.allCases
     @State private var selectedMerchant: MerchantAnalytics.MerchantStats?
     @State private var selectedCategory: SpendCategory?
     @State private var categoryFilter: SpendCategory?
@@ -22,34 +19,7 @@ struct AnalysisView: View {
     /// the 11-line chart is noisy — lets you isolate a few lines without
     /// changing the merchant-section category filter below it.
     @State private var hiddenChartCategories: Set<SpendCategory> = []
-
-    /// The earliest transaction date across the *unfiltered* account/rule
-    /// scope — used to decide which range options would actually change what's
-    /// displayed (e.g. hide 6M/12M/All when you only have 3 months of history).
-    private var earliestTransactionDate: Date? {
-        transactions.map(\.date).min()
-    }
-
-    /// Only offer ranges that are either "All" or would include more history
-    /// than the smallest option — otherwise every wider tab shows identical
-    /// data, which is confusing with a short transaction history.
-    private var availableRanges: [AnalysisTimeRange] {
-        guard let earliest = earliestTransactionDate else { return [.oneMonth] }
-        let now = Date()
-        let spanMonths = Calendar.current.dateComponents([.month], from: earliest, to: now).month ?? 0
-        var options = AnalysisTimeRange.allCases.filter { option in
-            switch option {
-            case .oneMonth: return true
-            case .threeMonths: return spanMonths >= 1
-            case .sixMonths: return spanMonths >= 3
-            case .twelveMonths: return spanMonths >= 6
-            case .all: return spanMonths >= 12
-            }
-        }
-        // Always keep at least one option so the picker never renders empty.
-        if options.isEmpty { options = [.oneMonth] }
-        return options
-    }
+    @State private var isVisible = false
 
     /// Start of the selected window, truncated to a day so it is stable within
     /// a render pass and can safely take part in the cache key.
@@ -57,109 +27,77 @@ struct AnalysisView: View {
         range.cutoff().map { Calendar.current.startOfDay(for: $0) }
     }
 
-    private var scoped: [TransactionRecord] {
-        let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
-        let cutoff = windowStart
-        return transactions.filter { txn in
-            SpendingAccountFilter.isIncluded(txn.accountId, excluded: excluded)
-                && (cutoff == nil || txn.date >= cutoff!)
-        }
-    }
-
-    /// Async orchestration for the analysis pipeline. Shared (see the type's
-    /// docs) so the last snapshot and the memo survive this view being
-    /// destroyed and recreated by the Analysis/Save picker.
+    /// Shared so the last snapshot is available immediately when this segment
+    /// becomes active again.
     @State private var coordinator = AnalysisSnapshotCoordinator.shared
-
-    /// Content-addressed identity of the current analysis inputs. Hashing a few
-    /// scalar fields per transaction is O(n) but trivially cheap next to the
-    /// regex/token work it guards, and — unlike a fingerprint such as
-    /// count+max(date) — it cannot miss an edit or a recategorization.
-    private var request: AnalysisSnapshotCoordinator.Request {
-        AnalysisSnapshotCoordinator.Request(
-            key: AnalysisSnapshotCache.InputsKey(
-                dataHash: AnalysisSnapshotCache.dataHash(transactions),
-                rulesHash: AnalysisSnapshotCache.rulesHash(rules),
-                excludedAccountsRaw: excludedAccountsRaw,
-                range: range,
-                windowStart: windowStart
-            ),
-            categoryFilter: categoryFilter
-        )
-    }
-
-    /// Extracts plain values on the main thread (SwiftData models can't cross
-    /// to a background executor) and hands them to the coordinator. Extraction
-    /// is eager rather than deferred into the debounced task so the copies
-    /// can't be invalidated by a delete happening in the meantime.
-    private func requestSnapshot(_ request: AnalysisSnapshotCoordinator.Request) {
-        coordinator.refresh(
-            request,
-            transactions: scoped.map(AnalysisTransaction.init(record:)),
-            rules: rules.map(CategoryRuleSpec.init(rule:))
-        )
-    }
 
     var body: some View {
         Group {
-                if let snapshot = coordinator.snapshot {
-                    if snapshot.isEmpty {
-                        // Nothing to scroll, so the picker has to be stacked
-                        // above the state rather than riding the content.
-                        VStack(spacing: 0) {
-                            pickerRow
-                            ContentUnavailableView {
-                                Label("No trends yet", systemImage: "chart.line.uptrend.xyaxis")
-                            } description: {
-                                Text("Connect an account or import a statement to see merchant and category trends.")
-                            }
-                        }
-                    } else {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 24) {
-                                segmentPicker
-                                rangePicker
-                                categorySpendChart(snapshot)
-                                categoryAveragesList(snapshot)
-                                categoryFilterRow(snapshot)
-                                merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: snapshot.topByFrequency, showsVisits: true)
-                                merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: snapshot.topBySpend, showsVisits: false)
-                                if !snapshot.recurring.isEmpty {
-                                    merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: snapshot.recurring, showsVisits: true)
-                                }
-                            }
-                            .padding()
-                        }
+            if let snapshot = coordinator.snapshot {
+                if snapshot.isEmpty {
+                    ContentUnavailableView {
+                        Label("No trends yet", systemImage: "chart.line.uptrend.xyaxis")
+                    } description: {
+                        Text("Connect an account or import a statement to see merchant and category trends.")
                     }
                 } else {
-                    // First load only — never the empty state, which would be a
-                    // lie while the computation is still running.
-                    VStack(spacing: 0) {
-                        pickerRow
-                        ProgressView("Analyzing your spending…")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            rangePicker
+                            categorySpendChart(snapshot)
+                            categoryAveragesList(snapshot)
+                            categoryFilterRow(snapshot)
+                            merchantSection(title: "Most frequent", symbol: "repeat.circle.fill", stats: snapshot.topByFrequency, showsVisits: true)
+                            merchantSection(title: "Biggest spend", symbol: "dollarsign.circle.fill", stats: snapshot.topBySpend, showsVisits: false)
+                            if !snapshot.recurring.isEmpty {
+                                merchantSection(title: "Recurring habits", symbol: "arrow.triangle.2.circlepath.circle.fill", stats: snapshot.recurring, showsVisits: true)
+                            }
+                        }
+                        .padding()
                     }
                 }
+            } else {
+                // First load only — never the empty state, which would be a
+                // lie while the computation is still running.
+                ProgressView("Analyzing your spending…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .onChange(of: request, initial: true) { _, newRequest in
-                requestSnapshot(newRequest)
+        }
+        // The visible UI stays mounted so scroll and selection state survive a
+        // segment switch. Only this data driver owns @Query, so the hidden
+        // segment stops observing SwiftData and doing ledger-sized hashing.
+        .background {
+            if isActive && isVisible {
+                AnalysisDataDriver(
+                    range: $range,
+                    categoryFilter: categoryFilter,
+                    excludedAccountsRaw: excludedAccountsRaw,
+                    availableRanges: $availableRanges,
+                    coordinator: coordinator
+                )
             }
-            .navigationTitle("Analysis")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(item: $selectedMerchant) { stats in
-                MerchantDetailView(stats: stats, transactions: scoped, rules: rules)
-            }
-            .navigationDestination(item: $selectedCategory) { category in
-                AnalysisCategoryDetailView(category: category, transactions: scoped, rules: rules)
-            }
-    }
-
-    @ViewBuilder
-    private var pickerRow: some View {
-        if let segmentPicker {
-            segmentPicker
-                .padding(.horizontal)
-                .padding(.bottom, 8)
+        }
+        .onAppear { isVisible = true }
+        .onDisappear {
+            isVisible = false
+            coordinator.suspend()
+        }
+        .onChange(of: isActive) { _, active in
+            if !active { coordinator.suspend() }
+        }
+        .navigationDestination(item: $selectedMerchant) { stats in
+            AnalysisMerchantDestination(
+                stats: stats,
+                excludedAccountsRaw: excludedAccountsRaw,
+                windowStart: windowStart
+            )
+        }
+        .navigationDestination(item: $selectedCategory) { category in
+            AnalysisCategoryDestination(
+                category: category,
+                excludedAccountsRaw: excludedAccountsRaw,
+                windowStart: windowStart
+            )
         }
     }
 
@@ -170,16 +108,6 @@ struct AnalysisView: View {
             }
         }
         .pickerStyle(.segmented)
-        .onAppear { clampRangeToAvailable() }
-        .onChange(of: availableRanges) { _, _ in clampRangeToAvailable() }
-    }
-
-    /// If the selected range isn't one of the currently meaningful options
-    /// (e.g. history just got shorter, or the default 12M isn't reachable yet
-    /// with only a few months of data), fall back to the widest one that is.
-    private func clampRangeToAvailable() {
-        guard !availableRanges.contains(range), let widest = availableRanges.last else { return }
-        range = widest
     }
 
     /// Lets you focus the frequency/spend/recurring sections below on a
@@ -463,6 +391,135 @@ private struct CategoryAverageRow: View {
         }
         .contentShape(Rectangle())
     }
+}
+
+/// Owns the live SwiftData subscriptions only while Analysis is visible.
+///
+/// The rendered Analysis tree remains mounted in `AnalysisView`, preserving
+/// scroll position and controls, while switching to Save removes this driver
+/// and all of its query observation.
+private struct AnalysisDataDriver: View {
+    @Binding var range: AnalysisTimeRange
+    let categoryFilter: SpendCategory?
+    let excludedAccountsRaw: String
+    @Binding var availableRanges: [AnalysisTimeRange]
+    let coordinator: AnalysisSnapshotCoordinator
+
+    @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
+    @Query private var rules: [CategoryRule]
+
+    private var windowStart: Date? {
+        range.cutoff().map { Calendar.current.startOfDay(for: $0) }
+    }
+
+    private var request: AnalysisSnapshotCoordinator.Request {
+        AnalysisSnapshotCoordinator.Request(
+            key: AnalysisSnapshotCache.InputsKey(
+                dataHash: AnalysisSnapshotCache.dataHash(transactions),
+                rulesHash: AnalysisSnapshotCache.rulesHash(rules),
+                excludedAccountsRaw: excludedAccountsRaw,
+                range: range,
+                windowStart: windowStart
+            ),
+            categoryFilter: categoryFilter
+        )
+    }
+
+    var body: some View {
+        Color.clear
+            .onChange(of: request, initial: true) { _, newRequest in
+                let meaningfulRanges = meaningfulAnalysisRanges(for: transactions)
+                availableRanges = meaningfulRanges
+                guard meaningfulRanges.contains(range) else {
+                    range = meaningfulRanges.last ?? .oneMonth
+                    return
+                }
+                coordinator.refresh(
+                    newRequest,
+                    transactions: scopedAnalysisTransactions(
+                        transactions,
+                        excludedAccountsRaw: excludedAccountsRaw,
+                        windowStart: windowStart
+                    ).map(AnalysisTransaction.init(record:)),
+                    rules: rules.map(CategoryRuleSpec.init(rule:))
+                )
+            }
+            .onDisappear { coordinator.suspend() }
+            .accessibilityHidden(true)
+    }
+}
+
+/// Detail destinations fetch only while they are actually pushed. Keeping
+/// these queries out of `AnalysisView` lets its hidden segment fully detach
+/// from SwiftData without changing the existing detail screens.
+private struct AnalysisMerchantDestination: View {
+    let stats: MerchantAnalytics.MerchantStats
+    let excludedAccountsRaw: String
+    let windowStart: Date?
+
+    @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
+    @Query private var rules: [CategoryRule]
+
+    var body: some View {
+        MerchantDetailView(
+            stats: stats,
+            transactions: scopedAnalysisTransactions(
+                transactions,
+                excludedAccountsRaw: excludedAccountsRaw,
+                windowStart: windowStart
+            ),
+            rules: rules
+        )
+    }
+}
+
+private struct AnalysisCategoryDestination: View {
+    let category: SpendCategory
+    let excludedAccountsRaw: String
+    let windowStart: Date?
+
+    @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
+    @Query private var rules: [CategoryRule]
+
+    var body: some View {
+        AnalysisCategoryDetailView(
+            category: category,
+            transactions: scopedAnalysisTransactions(
+                transactions,
+                excludedAccountsRaw: excludedAccountsRaw,
+                windowStart: windowStart
+            ),
+            rules: rules
+        )
+    }
+}
+
+private func scopedAnalysisTransactions(
+    _ transactions: [TransactionRecord],
+    excludedAccountsRaw: String,
+    windowStart: Date?
+) -> [TransactionRecord] {
+    let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
+    return transactions.filter { transaction in
+        SpendingAccountFilter.isIncluded(transaction.accountId, excluded: excluded)
+            && (windowStart == nil || transaction.date >= windowStart!)
+    }
+}
+
+/// Hides range choices that would display the same history as a shorter one.
+private func meaningfulAnalysisRanges(for transactions: [TransactionRecord]) -> [AnalysisTimeRange] {
+    guard let earliest = transactions.lazy.map(\.date).min() else { return [.oneMonth] }
+    let spanMonths = Calendar.current.dateComponents([.month], from: earliest, to: Date()).month ?? 0
+    let options = AnalysisTimeRange.allCases.filter { option in
+        switch option {
+        case .oneMonth: return true
+        case .threeMonths: return spanMonths >= 1
+        case .sixMonths: return spanMonths >= 3
+        case .twelveMonths: return spanMonths >= 6
+        case .all: return spanMonths >= 12
+        }
+    }
+    return options.isEmpty ? [.oneMonth] : options
 }
 
 struct TrendBadge: View {
