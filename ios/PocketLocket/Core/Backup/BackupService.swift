@@ -18,6 +18,8 @@ enum BackupService {
         var accounts: [AccountDTO]
         var transactions: [TxnDTO]
         var rules: [RuleDTO]
+        /// Optional so backups created before grouping controls still decode.
+        var groupingRules: [GroupingRuleDTO]?
     }
 
     struct AccountDTO: Codable {
@@ -69,6 +71,19 @@ enum BackupService {
         init(_ r: CategoryRule) { matchText = r.matchText; categoryRaw = r.categoryRaw; createdAt = r.createdAt }
     }
 
+    struct GroupingRuleDTO: Codable {
+        var sourceKey: String
+        var groupID: String?
+        var groupName: String
+        var createdAt: Date
+        init(_ rule: MerchantGroupingRule) {
+            sourceKey = rule.sourceKey
+            groupID = rule.groupID
+            groupName = rule.groupName
+            createdAt = rule.createdAt
+        }
+    }
+
     private struct Envelope: Codable {
         var version = 1
         var salt: String
@@ -95,7 +110,8 @@ enum BackupService {
         let payload = Payload(
             accounts: try context.fetch(FetchDescriptor<AccountRecord>()).map(AccountDTO.init),
             transactions: try context.fetch(FetchDescriptor<TransactionRecord>()).map(TxnDTO.init),
-            rules: try context.fetch(FetchDescriptor<CategoryRule>()).map(RuleDTO.init)
+            rules: try context.fetch(FetchDescriptor<CategoryRule>()).map(RuleDTO.init),
+            groupingRules: try context.fetch(FetchDescriptor<MerchantGroupingRule>()).map(GroupingRuleDTO.init)
         )
         let plaintext = try JSONEncoder().encode(payload)
         return try encrypt(plaintext, password: password)
@@ -213,6 +229,22 @@ enum BackupService {
                 matchText: r.matchText,
                 category: SpendCategory(rawValue: r.categoryRaw) ?? .other,
                 createdAt: r.createdAt
+            ))
+        }
+
+        for rule in payload.groupingRules ?? [] {
+            let sourceKey = MerchantNormalizer.groupingKey(rule.sourceKey)
+            let exists = ((try? context.fetch(
+                FetchDescriptor<MerchantGroupingRule>(
+                    predicate: #Predicate { $0.sourceKey == sourceKey }
+                )
+            ))?.first) != nil
+            guard !exists else { continue }
+            context.insert(MerchantGroupingRule(
+                sourceKey: sourceKey,
+                groupID: rule.groupID ?? UUID().uuidString,
+                groupName: rule.groupName,
+                createdAt: rule.createdAt
             ))
         }
 

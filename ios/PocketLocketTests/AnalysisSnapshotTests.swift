@@ -51,6 +51,30 @@ final class AnalysisSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.availableCategories.contains(.food), "availableCategories stays unfiltered")
     }
 
+    func testSnapshotAppliesUserGroupingRules() {
+        let groupID = UUID().uuidString
+        let groupingRules = [
+            MerchantGroupingRuleSpec(
+                sourceKey: "Starbucks #101",
+                groupID: groupID,
+                groupName: "Coffee"
+            ),
+            MerchantGroupingRuleSpec(
+                sourceKey: "Trader Joes",
+                groupID: groupID,
+                groupName: "Coffee"
+            ),
+        ]
+        let snapshot = AnalysisSnapshot.make(
+            inputs: sample,
+            categoryFilter: nil,
+            groupingRules: groupingRules
+        )
+
+        XCTAssertEqual(snapshot.topBySpend.map(\.name), ["Coffee"])
+        XCTAssertEqual(snapshot.topBySpend.first?.visitCount, sample.count)
+    }
+
     /// The chart and averages list render *above* the category chips, so
     /// resizing them on filter change moved the chips out from under the tap
     /// that triggered it. They must stay identical across filters.
@@ -89,6 +113,11 @@ final class AnalysisSnapshotTests: XCTestCase {
         ruleChanged.rulesHash = 9
         _ = cache.snapshot(key: ruleChanged, categoryFilter: nil, buildInputs: build)
         XCTAssertEqual(builds, 3, "a rule change must invalidate the cache")
+
+        var groupingChanged = ruleChanged
+        groupingChanged.groupingRulesHash = 9
+        _ = cache.snapshot(key: groupingChanged, categoryFilter: nil, buildInputs: build)
+        XCTAssertEqual(builds, 4, "a grouping correction must invalidate the cache")
     }
 
     func testCacheRecomputesSnapshotWhenFilterChanges() throws {

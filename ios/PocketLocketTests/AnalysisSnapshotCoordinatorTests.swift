@@ -157,6 +157,24 @@ final class AnalysisSnapshotCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.appliedRequest, request(5))
     }
 
+    func testSuspendCancelsInFlightWorkAndBlocksItsResult() async {
+        let coordinator = AnalysisSnapshotCoordinator(debounce: .zero) { _ in
+            while !Task.isCancelled { await Task.yield() }
+            return AnalysisSnapshot.make(inputs: [], categoryFilter: nil)
+        }
+
+        coordinator.refresh(request(1), transactions: sampleTransactions, rules: [])
+        while !coordinator.isRecomputing { await Task.yield() }
+        let task = coordinator.activeTask
+
+        coordinator.suspend()
+        await task?.value
+
+        XCTAssertNil(coordinator.snapshot)
+        XCTAssertNil(coordinator.latestRequest)
+        XCTAssertFalse(coordinator.isRecomputing)
+    }
+
     // MARK: - Background engine
 
     func testEngineResolvesCategoriesFromPlainRuleSpecs() async throws {

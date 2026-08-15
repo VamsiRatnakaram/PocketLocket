@@ -9,6 +9,7 @@ final class RecordHashTests: XCTestCase {
         name: String = "SQ *BLUE BOTTLE",
         merchantName: String? = "Blue Bottle",
         amount: Double = 5,
+        currency: String = "USD",
         date: Date = Date(timeIntervalSince1970: 1_700_000_000),
         categoryPrimary: String? = nil,
         accountId: String? = "checking"
@@ -19,7 +20,7 @@ final class RecordHashTests: XCTestCase {
             name: name,
             merchantName: merchantName,
             amount: amount,
-            isoCurrencyCode: "USD",
+            isoCurrencyCode: currency,
             date: date,
             pending: false,
             categoryPrimary: categoryPrimary,
@@ -49,9 +50,10 @@ final class RecordHashTests: XCTestCase {
         )
     }
 
-    func testAmountDateCategoryAndAccountChangesAreDetected() {
+    func testAmountCurrencyDateCategoryAndAccountChangesAreDetected() {
         let base = RecordHash.transactions([txn()])
         XCTAssertNotEqual(base, RecordHash.transactions([txn(amount: 6)]))
+        XCTAssertNotEqual(base, RecordHash.transactions([txn(currency: "EUR")]))
         XCTAssertNotEqual(base, RecordHash.transactions([txn(date: Date(timeIntervalSince1970: 1_700_086_400))]))
         XCTAssertNotEqual(base, RecordHash.transactions([txn(categoryPrimary: "FOOD_AND_DRINK")]))
         XCTAssertNotEqual(base, RecordHash.transactions([txn(accountId: "savings")]))
@@ -70,5 +72,35 @@ final class RecordHashTests: XCTestCase {
         XCTAssertNotEqual(RecordHash.rules(base), RecordHash.rules([CategoryRule(matchText: "blue bottle", category: .shopping)]))
         XCTAssertNotEqual(RecordHash.rules(base), RecordHash.rules([CategoryRule(matchText: "peets", category: .food)]))
         XCTAssertNotEqual(RecordHash.rules(base), RecordHash.rules([]))
+    }
+
+    func testGroupingRuleChangesAreDetected() {
+        let base = [
+            MerchantGroupingRule(
+                sourceKey: "MS CAFE 34",
+                groupID: "cafe-group",
+                groupName: "Cafe 34"
+            )
+        ]
+        XCTAssertEqual(
+            RecordHash.groupingRules(base),
+            RecordHash.groupingRules([
+                MerchantGroupingRule(
+                    sourceKey: "MS CAFE 34",
+                    groupID: "cafe-group",
+                    groupName: "Cafe 34"
+                )
+            ])
+        )
+        XCTAssertNotEqual(
+            RecordHash.groupingRules(base),
+            RecordHash.groupingRules([
+                MerchantGroupingRule(
+                    sourceKey: "MS CAFE 34",
+                    groupID: "cafe-group",
+                    groupName: "Work Cafe"
+                )
+            ])
+        )
     }
 }

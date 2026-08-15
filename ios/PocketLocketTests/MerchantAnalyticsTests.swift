@@ -291,6 +291,30 @@ final class MerchantAnalyticsTests: XCTestCase {
         // The reference is dropped, but the sub-brand must not fold into "Uber".
         let uber = MerchantNormalizer.canonicalKeys(for: ["Uber Trip 123", "Uber Eats 456"])
         XCTAssertEqual(uber["Uber Eats 456"], "Uber Eats")
+
+        let stores = MerchantNormalizer.canonicalKeys(
+            for: ["Whole Foods 123", "Whole Earth 456"]
+        )
+        XCTAssertEqual(Set(stores.values), ["Whole Foods", "Whole Earth"])
+
+        let routing = MerchantNormalizer.canonicalKeys(
+            for: ["MS CM FOODHALL 4", "MS CM NE BOON BOONA 2"]
+        )
+        XCTAssertFalse(routing.values.contains("Ms Cm"))
+    }
+
+    func testSubstantiveOneWordMerchantCanDeriveFromPureReferences() {
+        let canonical = MerchantNormalizer.canonicalKeys(
+            for: ["KFC 4", "KFC 6"].map(MerchantNormalizer.groupingKey)
+        )
+        XCTAssertEqual(Set(canonical.values), ["Kfc"])
+    }
+
+    func testRoutingAliasResolvesThroughBareMerchantCanonicalization() {
+        let canonical = MerchantNormalizer.canonicalKeys(
+            for: ["MS CAFE 34", "CAFE 34", "CAFE"].map(MerchantNormalizer.groupingKey)
+        )
+        XCTAssertEqual(Set(canonical.values), ["Cafe"])
     }
 
     func testMerchantIdentityIgnoresCaseAndAccents() {
@@ -322,5 +346,140 @@ final class MerchantAnalyticsTests: XCTestCase {
         XCTAssertEqual(merchants.count, 1)
         XCTAssertEqual(merchants.first?.visitCount, 3)
         XCTAssertTrue(merchants.first?.matches("uBeR *eAtS") ?? false)
+    }
+
+    /// Real phone rows. The old pairwise prefix derivation saw a number in
+    /// every suffix and collapsed all twelve `MS ...` transactions to "Ms".
+    func testShortRoutingPrefixCannotBecomeTheMerchantIdentity() {
+        let merchants = stats([
+            "MS CAFE 34",
+            "CAFE 34",
+            "MS CM FOODHALL 4",
+            "MS CM FOODHALL 6",
+            "MS CM FOODHALL 4 OND",
+            "MS CM NE BOON BOONA",
+        ])
+
+        XCTAssertFalse(merchants.contains { $0.name == "Ms" })
+        XCTAssertEqual(
+            merchants.first { $0.name == "Cafe 34" }?.visitCount,
+            2,
+            "the exact bare descriptor is strong evidence that MS is routing noise here"
+        )
+        XCTAssertEqual(
+            merchants.first { $0.name == "Ms Cm Foodhall" }?.visitCount,
+            3
+        )
+        XCTAssertEqual(
+            merchants.first { $0.name == "Ms Cm Ne Boon Boona" }?.visitCount,
+            1
+        )
+    }
+
+    func testUnknownLeadingWordIsNotDroppedEvenWhenBareSuffixExists() {
+        let merchants = stats(["NEW CAFE 34", "CAFE 34"])
+        XCTAssertEqual(Set(merchants.map(\.name)), ["New Cafe 34", "Cafe 34"])
+    }
+
+    func testUserGroupingRulesMergeAndSplitExactDescriptors() {
+        let cafeGroupID = UUID().uuidString
+        let inputs = ["MS CAFE 34", "CAFE 34", "MS CM FOODHALL 4", "MS CM FOODHALL 6"]
+            .enumerated()
+            .map { index, title in
+                MerchantAnalytics.Input(
+                    title: title,
+                    amount: 10,
+                    category: .food,
+                    date: Date(timeIntervalSince1970: Double(index) * 86_400)
+                )
+            }
+        let rules = [
+            MerchantGroupingRuleSpec(
+                sourceKey: "MS CAFE 34",
+                groupID: cafeGroupID,
+                groupName: "Work Cafe"
+            ),
+            MerchantGroupingRuleSpec(
+                sourceKey: "CAFE 34",
+                groupID: cafeGroupID,
+                groupName: "Work Cafe"
+            ),
+            MerchantGroupingRuleSpec(
+                sourceKey: "MS CM FOODHALL 4",
+                groupID: UUID().uuidString,
+                groupName: "Foodhall 4"
+            ),
+            MerchantGroupingRuleSpec(
+                sourceKey: "MS CM FOODHALL 6",
+                groupID: UUID().uuidString,
+                groupName: "Foodhall 6"
+            ),
+        ]
+
+        let merchants = MerchantAnalytics.merchantStats(inputs, groupingRules: rules)
+
+        XCTAssertEqual(merchants.first { $0.name == "Work Cafe" }?.visitCount, 2)
+        XCTAssertEqual(merchants.first { $0.name == "Foodhall 4" }?.visitCount, 1)
+        XCTAssertEqual(merchants.first { $0.name == "Foodhall 6" }?.visitCount, 1)
+        XCTAssertEqual(merchants.count, 3)
+    }
+
+    func testSameDisplayNameDoesNotMergeDistinctUserGroups() {
+        let inputs = [
+            MerchantAnalytics.Input(title: "CAFE A", amount: 10, category: .food, date: .now),
+            MerchantAnalytics.Input(title: "CAFE B", amount: 10, category: .food, date: .now),
+        ]
+        let rules = [
+            MerchantGroupingRuleSpec(
+                sourceKey: "CAFE A",
+                groupID: "group-a",
+                groupName: "Cafe"
+            ),
+            MerchantGroupingRuleSpec(
+                sourceKey: "CAFE B",
+                groupID: "group-b",
+                groupName: "Cafe"
+            ),
+        ]
+
+        let merchants = MerchantAnalytics.merchantStats(inputs, groupingRules: rules)
+        XCTAssertEqual(merchants.count, 2)
+        XCTAssertEqual(Set(merchants.map(\.name)), ["Cafe"])
+        XCTAssertEqual(Set(merchants.map(\.id)), ["user:group-a", "user:group-b"])
+        XCTAssertTrue(merchants.first { $0.id == "user:group-a" }?.matches("CAFE A") ?? false)
+        XCTAssertFalse(merchants.first { $0.id == "user:group-a" }?.matches("CAFE B") ?? true)
+    }
+
+    func testAutomaticGroupCannotReclaimExplicitlySplitSource() {
+        let inputs = [
+            MerchantAnalytics.Input(
+                title: "Safeway #1993",
+                amount: 10,
+                category: .groceries,
+                date: .now
+            ),
+            MerchantAnalytics.Input(
+                title: "Safeway #2044",
+                amount: 20,
+                category: .groceries,
+                date: .now
+            ),
+        ]
+        let rules = [
+            MerchantGroupingRuleSpec(
+                sourceKey: "Safeway #1993",
+                groupID: "split-store",
+                groupName: "Other Safeway"
+            )
+        ]
+
+        let merchants = MerchantAnalytics.merchantStats(inputs, groupingRules: rules)
+        let automatic = merchants.first { $0.name == "Safeway" }
+        let explicit = merchants.first { $0.name == "Other Safeway" }
+
+        XCTAssertEqual(merchants.count, 2)
+        XCTAssertFalse(automatic?.matches("Safeway #1993") ?? true)
+        XCTAssertTrue(automatic?.matches("Safeway #2044") ?? false)
+        XCTAssertTrue(explicit?.matches("Safeway #1993") ?? false)
     }
 }

@@ -3,7 +3,7 @@ import Foundation
 /// Produces data-driven money-saving suggestions from a month of spending.
 /// Pure and testable — the UI builds `Input`s from the transaction cache.
 enum SavingsAdvisor {
-    struct Input {
+    struct Input: Sendable {
         let title: String
         let amount: Double
         let category: SpendCategory
@@ -31,6 +31,7 @@ enum SavingsAdvisor {
             let subTotal = subs.reduce(0) { $0 + $1.amount }
             let names = Array(Set(subs.map { $0.title })).sorted().prefix(4).joined(separator: ", ")
             out.append(SavingsSuggestion(
+                id: "subscriptions",
                 title: "Review \(subs.count) subscription\(subs.count == 1 ? "" : "s")",
                 detail: "About \(money(subTotal))/mo across \(names). Cancel the ones you don't use.",
                 monthlyImpact: subTotal * 0.4,
@@ -50,11 +51,12 @@ enum SavingsAdvisor {
                 }
             }
             out.append(SavingsSuggestion(
+                id: "top-category-\(top.key.rawValue)",
                 title: "\(top.key.displayName) is your top category",
                 detail: detail,
                 monthlyImpact: top.value * 0.1,
                 symbol: top.key.symbol,
-                tint: top.key.tint))
+                tint: top.key.appTint))
         }
 
         // Overall spending trend vs last month.
@@ -62,6 +64,7 @@ enum SavingsAdvisor {
             let change = (total - prevTotal) / prevTotal
             if change > 0.1 {
                 out.append(SavingsSuggestion(
+                    id: "spending-trend",
                     title: "Spending is up this month",
                     detail: "You're \(percent(change)) ahead of last month (\(money(total)) vs \(money(prevTotal))). Easing back now keeps you on track.",
                     monthlyImpact: total - prevTotal,
@@ -80,6 +83,7 @@ enum SavingsAdvisor {
         }
         if let (merchant, stats) = merchantStats.max(by: { $0.value.count < $1.value.count }), stats.count >= 3 {
             out.append(SavingsSuggestion(
+                id: "frequent-merchant",
                 title: "\(merchant) adds up",
                 detail: "\(stats.count) charges totaling \(money(stats.total)). Trimming a few could save ~\(money(stats.total * 0.25)).",
                 monthlyImpact: stats.total * 0.25,
@@ -91,6 +95,7 @@ enum SavingsAdvisor {
         if monthlyBudget > 0 {
             if total > monthlyBudget {
                 out.append(SavingsSuggestion(
+                    id: "budget-status",
                     title: "You're over budget",
                     detail: "You've spent \(money(total)) of \(money(monthlyBudget)). Pausing non-essentials will get you back on track.",
                     monthlyImpact: total - monthlyBudget,
@@ -99,6 +104,7 @@ enum SavingsAdvisor {
             } else {
                 let left = monthlyBudget - total
                 out.append(SavingsSuggestion(
+                    id: "budget-status",
                     title: "Move your surplus to savings",
                     detail: "You have \(money(left)) left this month. Auto-transfer it before you spend it.",
                     monthlyImpact: left,
@@ -110,6 +116,7 @@ enum SavingsAdvisor {
         // Biggest single expense (informational).
         if spending.count > 3, let biggest = spending.max(by: { $0.amount < $1.amount }), biggest.amount > total * 0.2 {
             out.append(SavingsSuggestion(
+                id: "biggest-expense",
                 title: "Biggest expense: \(biggest.title)",
                 detail: "\(money(biggest.amount)) in one go — about \(percent(biggest.amount / total)) of this month's spending.",
                 monthlyImpact: nil,
@@ -122,6 +129,7 @@ enum SavingsAdvisor {
         if dining.count >= 4 {
             let diningTotal = dining.reduce(0) { $0 + $1.amount }
             out.append(SavingsSuggestion(
+                id: "dining",
                 title: "Dining out adds up",
                 detail: "\(dining.count) food purchases totaling \(money(diningTotal)). Cooking a few at home could save ~\(money(diningTotal * 0.2)).",
                 monthlyImpact: diningTotal * 0.2,
@@ -134,6 +142,7 @@ enum SavingsAdvisor {
         if !fees.isEmpty {
             let feeTotal = fees.reduce(0) { $0 + $1.amount }
             out.append(SavingsSuggestion(
+                id: "fees",
                 title: "You're paying fees",
                 detail: "\(money(feeTotal)) in fees or interest. Paying your card in full or switching to a no-fee option removes this.",
                 monthlyImpact: feeTotal,

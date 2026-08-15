@@ -4,6 +4,13 @@ import Foundation
 /// "STARBUCKS #4521", "Starbucks 04521 Seattle WA", and "SQ *STARBUCKS" all
 /// roll up into a single merchant for frequency/trend analysis.
 enum MerchantNormalizer {
+    /// Short routing labels observed before the real merchant in statement
+    /// descriptors. These are not treated as generic removable words: only a
+    /// proven prefix plus an exact suffix already present in the ledger is
+    /// strong enough evidence to drop it automatically.
+    private static let statementRoutingPrefixes: Set<String> = ["ms"]
+    private static let canonicalRoutingTokens: Set<String> = ["ms", "cm"]
+
     /// Payment processors and marketplaces that put *their* name in front of a
     /// star and the merchant you actually paid behind it, so the useful half of
     /// "SQ *BLUE BOTTLE" is the second half.
@@ -142,15 +149,36 @@ enum MerchantNormalizer {
         for keys: some Sequence<String>,
         policy: MergePolicy = .conservative
     ) -> [String: String] {
+        let entries = Set(keys).compactMap { key -> (key: String, words: [String], tokens: [String])? in
+            let words = key.split(separator: " ").map(String.init)
+            let tokens = words.map { $0.lowercased() }
+            return tokens.isEmpty ? nil : (key, words, tokens)
+        }
+
+        // Some statement feeds prepend a routing code inconsistently. Only
+        // remove a known code when the exact suffix also occurs on this device:
+        // `MS CAFE 34` + `CAFE 34` is evidence; `MS CM FOODHALL 6` alone is not.
+        let entriesByTokens = Dictionary(
+            entries.map { ($0.tokens.joined(separator: "\u{1F}"), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var exactSuffixAliases: [String: String] = [:]
+        for entry in entries where entry.tokens.count >= 3 {
+            guard let prefix = entry.tokens.first,
+                  statementRoutingPrefixes.contains(prefix) else { continue }
+            let suffixKey = entry.tokens.dropFirst().joined(separator: "\u{1F}")
+            guard let suffix = entriesByTokens[suffixKey],
+                  categoriesAgree(suffix.key, entry.key) else { continue }
+            exactSuffixAliases[entry.key] = suffix.key
+        }
+
         // A shorter form always shares its first token with the longer one, so
         // bucketing by that token keeps the pairwise scan below linear overall
         // instead of quadratic across the whole ledger.
         var buckets: [String: [(key: String, words: [String], tokens: [String])]] = [:]
-        for key in Set(keys) {
-            let words = key.split(separator: " ").map(String.init)
-            let tokens = words.map { $0.lowercased() }
-            guard let first = tokens.first else { continue }
-            buckets[first, default: []].append((key, words, tokens))
+        for entry in entries {
+            guard let first = entry.tokens.first else { continue }
+            buckets[first, default: []].append(entry)
         }
 
         var mapping: [String: String] = [:]
@@ -161,9 +189,16 @@ enum MerchantNormalizer {
                 for j in entries.index(after: i)..<entries.endIndex {
                     let (a, b) = (entries[i], entries[j])
                     let shared = zip(a.tokens, b.tokens).prefix { $0 == $1 }.count
+                    let leftSuffix = a.tokens.dropFirst(shared)
+                    let rightSuffix = b.tokens.dropFirst(shared)
                     guard shared > 0, shared < a.tokens.count, shared < b.tokens.count,
-                          looksLikeReference(a.tokens.dropFirst(shared)),
-                          looksLikeReference(b.tokens.dropFirst(shared)) else { continue }
+                          looksLikeReference(leftSuffix),
+                          looksLikeReference(rightSuffix),
+                          isSpecificEnoughToDerive(
+                              a.tokens.prefix(shared),
+                              leftSuffix: leftSuffix,
+                              rightSuffix: rightSuffix
+                          ) else { continue }
                     candidates.append((
                         name: a.words.prefix(shared).joined(separator: " "),
                         tokens: Array(a.tokens.prefix(shared)),
@@ -192,6 +227,16 @@ enum MerchantNormalizer {
                 mapping[entry.key] = stripReferences(canonical)
             }
         }
+
+        // Resolve routing aliases after every ordinary key has its canonical
+        // value, so `MS CAFE 34` -> `CAFE 34` -> `CAFE` reaches the same final
+        // merchant instead of stopping one step early.
+        for _ in 0...exactSuffixAliases.count {
+            for (alias, suffix) in exactSuffixAliases {
+                let next = exactSuffixAliases[suffix] ?? suffix
+                mapping[alias] = mapping[next] ?? stripReferences(next)
+            }
+        }
         return mapping
     }
 
@@ -207,6 +252,23 @@ enum MerchantNormalizer {
     /// per-statement reference rather than a different business.
     private static func looksLikeReference(_ tokens: some Sequence<String>) -> Bool {
         tokens.contains { $0.contains(where: \.isNumber) }
+    }
+
+    /// Shared routing labels are never a merchant. A substantive multi-word
+    /// prefix may absorb descriptor tails containing references; a one-word
+    /// brand may do so only when each entire suffix is itself a reference.
+    private static func isSpecificEnoughToDerive(
+        _ shared: some Collection<String>,
+        leftSuffix: some Collection<String>,
+        rightSuffix: some Collection<String>
+    ) -> Bool {
+        guard !shared.allSatisfy(canonicalRoutingTokens.contains) else { return false }
+        if shared.count > 1 { return true }
+        return isPureReference(leftSuffix) && isPureReference(rightSuffix)
+    }
+
+    private static func isPureReference(_ tokens: some Collection<String>) -> Bool {
+        !tokens.isEmpty && tokens.allSatisfy { $0.contains(where: \.isNumber) }
     }
 
     /// Two forms may only be merged when they don't resolve to *different*
@@ -270,6 +332,7 @@ enum MerchantAnalytics {
     }
 
     struct MerchantStats: Identifiable, Hashable {
+        let groupingID: String
         let name: String
         let category: SpendCategory
         let visitCount: Int
@@ -281,11 +344,16 @@ enum MerchantAnalytics {
         /// Every normalized descriptor folded into this merchant, so drill-downs
         /// can find the same transactions the stats were built from.
         let aliases: Set<String>
-        var id: String { name }
+        var id: String { groupingID }
+
+        var userGroupingRuleID: String? {
+            let prefix = "user:"
+            guard groupingID.hasPrefix(prefix) else { return nil }
+            return String(groupingID.dropFirst(prefix.count))
+        }
 
         func matches(_ title: String) -> Bool {
             aliases.contains(MerchantNormalizer.groupingKey(title))
-                || MerchantNormalizer.normalize(title) == name
         }
     }
 
@@ -311,7 +379,11 @@ enum MerchantAnalytics {
 
     /// Per-merchant visit counts, totals, and trend vs. the prior period of
     /// equal length immediately preceding it.
-    static func merchantStats(_ inputs: [Input], calendar: Calendar = .current) -> [MerchantStats] {
+    static func merchantStats(
+        _ inputs: [Input],
+        calendar: Calendar = .current,
+        groupingRules: [MerchantGroupingRuleSpec] = []
+    ) -> [MerchantStats] {
         let spending = spendingOnly(inputs)
         guard !spending.isEmpty else { return [] }
 
@@ -321,17 +393,23 @@ enum MerchantAnalytics {
 
         var grouped: [String: [Input]] = [:]
         var aliases: [String: Set<String>] = [:]
-        let canonical = MerchantNormalizer.canonicalKeys(
-            for: spending.map { MerchantNormalizer.groupingKey($0.title) }
+        let resolution = resolvedGrouping(for: spending, rules: groupingRules)
+        let namesByGroupID = Dictionary(
+            resolution.values.map { ($0.id, $0.name) },
+            uniquingKeysWith: { first, _ in first }
         )
         for item in spending {
             let grouping = MerchantNormalizer.groupingKey(item.title)
-            let key = canonical[grouping] ?? MerchantNormalizer.normalize(item.title)
-            grouped[key, default: []].append(item)
-            aliases[key, default: []].insert(grouping)
+            let group = resolution[grouping]
+                ?? ResolvedGroup(
+                    id: automaticGroupID(MerchantNormalizer.normalize(item.title)),
+                    name: MerchantNormalizer.normalize(item.title)
+                )
+            grouped[group.id, default: []].append(item)
+            aliases[group.id, default: []].insert(grouping)
         }
 
-        return grouped.map { name, items in
+        return grouped.map { groupingID, items in
             let total = items.reduce(0) { $0 + $1.amount }
             let dates = items.map(\.date)
             // Most common category among this merchant's transactions.
@@ -343,7 +421,8 @@ enum MerchantAnalytics {
             let earlier = items.filter { $0.date < midpoint }.reduce(0) { $0 + $1.amount }
 
             return MerchantStats(
-                name: name,
+                groupingID: groupingID,
+                name: namesByGroupID[groupingID] ?? groupingID,
                 category: category,
                 visitCount: items.count,
                 totalSpent: total,
@@ -351,7 +430,7 @@ enum MerchantAnalytics {
                 firstDate: dates.min() ?? earliest,
                 lastDate: dates.max() ?? latest,
                 trend: trend(current: recent, previous: earlier),
-                aliases: aliases[name] ?? [name]
+                aliases: aliases[groupingID] ?? []
             )
         }
         .sorted { $0.totalSpent > $1.totalSpent }
@@ -375,22 +454,65 @@ enum MerchantAnalytics {
         _ inputs: [Input],
         minMonths: Int = 3,
         calendar: Calendar = .current,
-        stats: [MerchantStats]? = nil
+        stats: [MerchantStats]? = nil,
+        groupingRules: [MerchantGroupingRuleSpec] = []
     ) -> [MerchantStats] {
         let spending = spendingOnly(inputs)
         var monthsByMerchant: [String: Set<DateComponents>] = [:]
-        let canonical = MerchantNormalizer.canonicalKeys(
-            for: spending.map { MerchantNormalizer.groupingKey($0.title) }
-        )
+        let resolution = resolvedGrouping(for: spending, rules: groupingRules)
         for item in spending {
             let grouping = MerchantNormalizer.groupingKey(item.title)
-            let key = canonical[grouping] ?? MerchantNormalizer.normalize(item.title)
+            let key = resolution[grouping]?.id
+                ?? automaticGroupID(MerchantNormalizer.normalize(item.title))
             let comps = calendar.dateComponents([.year, .month], from: item.date)
             monthsByMerchant[key, default: []].insert(comps)
         }
         let qualifying = Set(monthsByMerchant.filter { $0.value.count >= minMonths }.keys)
-        let resolved = stats ?? merchantStats(inputs, calendar: calendar)
-        return resolved.filter { qualifying.contains($0.name) }
+        let resolved = stats ?? merchantStats(
+            inputs,
+            calendar: calendar,
+            groupingRules: groupingRules
+        )
+        return resolved.filter { qualifying.contains($0.groupingID) }
+    }
+
+    /// User decisions are removed from the automatic candidate pool first, so
+    /// a rule that splits one descriptor cannot be pulled back into the same
+    /// fuzzy group by a neighboring transaction.
+    private struct ResolvedGroup {
+        let id: String
+        let name: String
+    }
+
+    private static func resolvedGrouping(
+        for inputs: [Input],
+        rules: [MerchantGroupingRuleSpec]
+    ) -> [String: ResolvedGroup] {
+        let explicit = Dictionary(
+            rules.map {
+                (
+                    $0.sourceKey,
+                    ResolvedGroup(id: "user:\($0.groupID)", name: $0.groupName)
+                )
+            },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        let sourceKeys = Set(inputs.map { MerchantNormalizer.groupingKey($0.title) })
+        let automatic = MerchantNormalizer.canonicalKeys(
+            for: sourceKeys.filter { explicit[$0] == nil }
+        )
+        return sourceKeys.reduce(into: [:]) { result, source in
+            if let explicit = explicit[source] {
+                result[source] = explicit
+                return
+            }
+            let name = automatic[source] ?? MerchantNormalizer.normalize(source)
+            result[source] = ResolvedGroup(id: automaticGroupID(name), name: name)
+        }
+    }
+
+    private static func automaticGroupID(_ name: String) -> String {
+        "auto:\(name.lowercased())"
     }
 
     /// Per-category, per-calendar-month totals over the supplied transactions —

@@ -7,7 +7,10 @@ final class BackupServiceTests: XCTestCase {
     private func makeContext() throws -> ModelContext {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
-            for: AccountRecord.self, TransactionRecord.self, CategoryRule.self,
+            for: AccountRecord.self,
+            TransactionRecord.self,
+            CategoryRule.self,
+            MerchantGroupingRule.self,
             configurations: config
         )
         return ModelContext(container)
@@ -25,6 +28,7 @@ final class BackupServiceTests: XCTestCase {
             categoryPrimary: nil, categoryDetailed: nil, logoURL: nil, accountId: "sf-1"
         ))
         context.insert(CategoryRule(matchText: "coffee", category: .food))
+        context.insert(MerchantGroupingRule(sourceKey: "SQ *COFFEE 101", groupName: "Coffee"))
         try context.save()
     }
 
@@ -49,10 +53,28 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(try dest.fetch(FetchDescriptor<TransactionRecord>()).count, 1)
         XCTAssertEqual(try dest.fetch(FetchDescriptor<AccountRecord>()).count, 1)
         XCTAssertEqual(try dest.fetch(FetchDescriptor<CategoryRule>()).count, 1)
+        let groupingRule = try XCTUnwrap(
+            dest.fetch(FetchDescriptor<MerchantGroupingRule>()).first
+        )
+        XCTAssertEqual(groupingRule.sourceKey, "Coffee 101")
+        XCTAssertEqual(groupingRule.groupName, "Coffee")
+        XCTAssertFalse(groupingRule.groupID.isEmpty)
         let restoredTransaction = try XCTUnwrap(
             dest.fetch(FetchDescriptor<TransactionRecord>()).first
         )
         XCTAssertEqual(restoredTransaction.categoryOverride, .food)
+    }
+
+    func testPayloadWithoutGroupingRulesStillDecodes() throws {
+        let payload = BackupService.Payload(
+            accounts: [],
+            transactions: [],
+            rules: [],
+            groupingRules: nil
+        )
+        let encoded = try JSONEncoder().encode(payload)
+        let decoded = try JSONDecoder().decode(BackupService.Payload.self, from: encoded)
+        XCTAssertNil(decoded.groupingRules)
     }
 
     func testWrongPasswordFails() throws {

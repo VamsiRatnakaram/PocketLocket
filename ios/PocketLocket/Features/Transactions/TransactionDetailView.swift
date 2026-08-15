@@ -6,10 +6,12 @@ import SwiftData
 struct TransactionDetailView: View {
     let txn: TransactionRecord
     let currentCategory: SpendCategory
+    let onGroupingSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Query private var rules: [CategoryRule]
+    @Query private var groupingRules: [MerchantGroupingRule]
     @Query private var allTransactions: [TransactionRecord]
     @Query private var accounts: [AccountRecord]
 
@@ -17,13 +19,20 @@ struct TransactionDetailView: View {
     @State private var scope: CategoryAssignment.Scope
     @State private var feedback = 0
     @State private var resolvedMatchKey: String?
+    @State private var groupingStats: MerchantAnalytics.MerchantStats?
+    @State private var dismissAfterGroupingEdit = false
     /// What the scope picker started on, so dismissing an untouched sheet
     /// writes nothing.
     private let initialScope: CategoryAssignment.Scope
 
-    init(txn: TransactionRecord, currentCategory: SpendCategory) {
+    init(
+        txn: TransactionRecord,
+        currentCategory: SpendCategory,
+        onGroupingSaved: @escaping () -> Void = {}
+    ) {
         self.txn = txn
         self.currentCategory = currentCategory
+        self.onGroupingSaved = onGroupingSaved
         _selected = State(initialValue: currentCategory)
         let descriptor = (txn.merchantName ?? "") + " " + txn.name
         let defaultScope: CategoryAssignment.Scope
@@ -66,6 +75,16 @@ struct TransactionDetailView: View {
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
         .onDisappear { persistSelection() }
+        .sheet(item: $groupingStats, onDismiss: {
+            if dismissAfterGroupingEdit {
+                onGroupingSaved()
+                dismiss()
+            }
+        }) { stats in
+            MerchantGroupingEditorView(stats: stats) {
+                dismissAfterGroupingEdit = true
+            }
+        }
     }
 
     private var header: some View {
@@ -149,6 +168,11 @@ struct TransactionDetailView: View {
                 }
             }
             scopePicker
+            Button { editGrouping() } label: {
+                Label("Edit Merchant Grouping", systemImage: "rectangle.3.group")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -214,6 +238,39 @@ struct TransactionDetailView: View {
     private func choose(_ category: SpendCategory) {
         withAnimation(.snappy) { selected = category }
         feedback += 1
+    }
+
+    /// Calculated only when requested. Building every merchant group requires a
+    /// ledger pass, so doing this in `body` would repeat it on each category tap.
+    private func editGrouping() {
+        let groupingSpecs = groupingRules.map(MerchantGroupingRuleSpec.init(rule:))
+        let inputs = allTransactions.map { transaction in
+            MerchantAnalytics.Input(
+                title: transaction.title,
+                amount: transaction.amount,
+                category: transaction.resolvedCategory(using: rules),
+                date: transaction.date
+            )
+        }
+        groupingStats = MerchantAnalytics
+            .merchantStats(inputs, groupingRules: groupingSpecs)
+            .first { $0.matches(txn.title) }
+
+        // Income, transfers, and refunds are intentionally absent from Analysis,
+        // but their merchant descriptor must still be correctable from here.
+        if groupingStats == nil {
+            groupingStats = MerchantAnalytics.merchantStats(
+                [
+                    MerchantAnalytics.Input(
+                        title: txn.title,
+                        amount: max(abs(txn.amount), 0.01),
+                        category: .other,
+                        date: txn.date
+                    )
+                ],
+                groupingRules: groupingSpecs
+            ).first
+        }
     }
 
     private func persistSelection() {

@@ -3,100 +3,57 @@ import SwiftData
 
 /// The "Save" tab — data-driven suggestions for where and how to save money.
 struct SuggestionsView: View {
-    /// Rendered at the top of the scroll content so it scrolls away, rather
-    /// than being pinned above this view by the parent.
-    var segmentPicker: AnalysisSegmentPicker?
+    var isActive = true
 
-    @Query private var transactions: [TransactionRecord]
-    @Query private var rules: [CategoryRule]
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
     @State private var ai = AIInsightService()
     @State private var question = ""
     @State private var submittedQuestion: String?
+    @State private var questionEntries: [TransactionQuestionContext.Entry]?
+    @State private var isVisible = false
     @FocusState private var questionFocused: Bool
+    @State private var coordinator = SavingsSuggestionsCoordinator.shared
 
-    init(segmentPicker: AnalysisSegmentPicker? = nil) {
-        self.segmentPicker = segmentPicker
-        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date()) ?? .distantPast
-        _transactions = Query(
-            filter: #Predicate<TransactionRecord> { $0.date >= cutoff },
-            sort: \TransactionRecord.date,
-            order: .reverse
-        )
-    }
-
-    private var monthTransactions: [TransactionRecord] {
-        let interval = Calendar.current.dateInterval(of: .month, for: Date())
-            ?? DateInterval(start: .distantPast, duration: 0)
-        let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
-        return transactions.filter {
-            interval.containsHalfOpen($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
-        }
-    }
-
-    private var previousMonthTransactions: [TransactionRecord] {
-        let calendar = Calendar.current
-        guard
-            let lastMonth = calendar.date(byAdding: .month, value: -1, to: Date()),
-            let interval = calendar.dateInterval(of: .month, for: lastMonth)
-        else { return [] }
-        let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
-        return transactions.filter {
-            interval.containsHalfOpen($0.date) && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
-        }
-    }
-
-    private func inputs(_ txns: [TransactionRecord]) -> [SavingsAdvisor.Input] {
-        txns.map { txn in
-            let haystack = (txn.merchantName ?? "") + " " + txn.name
-            return SavingsAdvisor.Input(
-                title: txn.title,
-                amount: txn.amount,
-                category: txn.resolvedCategory(using: rules),
-                isSubscription: MerchantHeuristics.isLikelySubscription(haystack)
-            )
-        }
-    }
-
-    private var suggestions: [SavingsSuggestion] {
-        SavingsAdvisor.suggestions(
-            inputs(monthTransactions),
-            previous: inputs(previousMonthTransactions),
-            monthlyBudget: monthlyBudget
-        )
-    }
-
-    private var questionTransactions: [TransactionRecord] {
-        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date()) ?? .distantPast
-        let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
-        return Array(transactions.lazy.filter {
-            $0.date >= cutoff && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
-        }.prefix(120))
-    }
-
-    private var potentialMonthly: Double {
+    private func potentialMonthly(_ suggestions: [SavingsSuggestion]) -> Double {
         suggestions.compactMap(\.monthlyImpact).reduce(0, +)
     }
 
+    /// Day precision keeps the dynamic SwiftData query identical across normal
+    /// body renders (including every keystroke) while still advancing daily.
+    private var transactionCutoff: Date {
+        let calendar = Calendar.current
+        let date = calendar.date(byAdding: .month, value: -12, to: Date()) ?? .distantPast
+        return calendar.startOfDay(for: date)
+    }
+
     var body: some View {
-        ScrollView {
-                if questionTransactions.isEmpty {
-                    VStack(spacing: 0) {
-                        segmentPicker
-                            .padding(.horizontal)
-                        ContentUnavailableView(
-                            "No suggestions yet",
-                            systemImage: "sparkles",
-                            description: Text("Connect an account or import a statement to get personalized ways to save.")
-                        )
+        let suggestions = coordinator.suggestions ?? []
+        return ScrollView {
+                if questionEntries == nil {
+                    ProgressView("Loading your transactions…")
+                        .frame(maxWidth: .infinity)
                         .padding(.top, 60)
-                    }
+                } else if questionEntries?.isEmpty == true {
+                    ContentUnavailableView(
+                        "No suggestions yet",
+                        systemImage: "sparkles",
+                        description: Text("Connect an account or import a statement to get personalized ways to save.")
+                    )
+                    .padding(.top, 60)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        segmentPicker
-                        if !suggestions.isEmpty { header }
+                        if !suggestions.isEmpty { header(suggestions) }
                         aiCard
+                        if coordinator.suggestions == nil {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Finding ways to save…")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 24)
+                        }
                         if !suggestions.isEmpty {
                             Text("Ways to save")
                                 .font(.headline)
@@ -108,14 +65,29 @@ struct SuggestionsView: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Save")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        SubscriptionsView()
-                    } label: {
-                        Label("Subscriptions", systemImage: "repeat")
-                    }
+            // Keep the UI mounted for scroll/question state, but only keep the
+            // query-owning driver alive while Save is visible.
+            .background {
+                if isActive && isVisible {
+                    SavingsSuggestionsDataDriver(
+                        monthlyBudget: monthlyBudget,
+                        excludedAccountsRaw: excludedAccountsRaw,
+                        transactionCutoff: transactionCutoff,
+                        questionEntries: $questionEntries,
+                        coordinator: coordinator
+                    )
+                }
+            }
+            .onAppear { isVisible = true }
+            .onDisappear {
+                isVisible = false
+                questionFocused = false
+                coordinator.suspend()
+            }
+            .onChange(of: isActive) { _, active in
+                if !active {
+                    questionFocused = false
+                    coordinator.suspend()
                 }
             }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -216,21 +188,13 @@ struct SuggestionsView: View {
         questionFocused = false
         submittedQuestion = submitted
         let context = TransactionQuestionContext.make(
-            entries: questionTransactions.map { transaction in
-                TransactionQuestionContext.Entry(
-                    date: transaction.date,
-                    title: transaction.title,
-                    amount: transaction.amount,
-                    currency: transaction.isoCurrencyCode,
-                    category: transaction.resolvedCategory(using: rules).displayName
-                )
-            },
+            entries: questionEntries ?? [],
             monthlyBudget: monthlyBudget
         )
         Task { await ai.ask(question: submitted, transactionContext: context) }
     }
 
-    private var header: some View {
+    private func header(_ suggestions: [SavingsSuggestion]) -> some View {
         VStack(spacing: 8) {
             Image(systemName: "leaf.fill")
                 .font(.title3)
@@ -238,7 +202,7 @@ struct SuggestionsView: View {
             Text("Potential savings")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
-            Text(CurrencyFormatter.string(potentialMonthly))
+            Text(CurrencyFormatter.string(potentialMonthly(suggestions)))
                 .font(.system(.largeTitle, design: .rounded).weight(.bold))
                 .monospacedDigit()
                 .contentTransition(.numericText())
@@ -258,16 +222,131 @@ struct SuggestionsView: View {
     }
 }
 
+/// The Save screen keeps its UI tree mounted for instant segment switches, but
+/// its SwiftData subscriptions and request hashing exist only while visible.
+private struct SavingsSuggestionsDataDriver: View {
+    struct Request: Equatable {
+        let suggestions: SavingsSuggestionsCoordinator.Request
+        let questionDataHash: Int
+    }
+
+    let monthlyBudget: Double
+    let excludedAccountsRaw: String
+    let transactionCutoff: Date
+    @Binding var questionEntries: [TransactionQuestionContext.Entry]?
+    let coordinator: SavingsSuggestionsCoordinator
+
+    @Query private var transactions: [TransactionRecord]
+    @Query private var rules: [CategoryRule]
+
+    init(
+        monthlyBudget: Double,
+        excludedAccountsRaw: String,
+        transactionCutoff: Date,
+        questionEntries: Binding<[TransactionQuestionContext.Entry]?>,
+        coordinator: SavingsSuggestionsCoordinator
+    ) {
+        self.monthlyBudget = monthlyBudget
+        self.excludedAccountsRaw = excludedAccountsRaw
+        self.transactionCutoff = transactionCutoff
+        self._questionEntries = questionEntries
+        self.coordinator = coordinator
+
+        _transactions = Query(
+            filter: #Predicate<TransactionRecord> { $0.date >= transactionCutoff },
+            sort: \TransactionRecord.date,
+            order: .reverse
+        )
+    }
+
+    private var currentMonth: DateInterval {
+        Calendar.current.dateInterval(of: .month, for: Date())
+            ?? DateInterval(start: .distantPast, duration: 0)
+    }
+
+    private var previousMonth: DateInterval {
+        let calendar = Calendar.current
+        guard
+            let lastMonth = calendar.date(byAdding: .month, value: -1, to: Date()),
+            let interval = calendar.dateInterval(of: .month, for: lastMonth)
+        else { return DateInterval(start: .distantPast, duration: 0) }
+        return interval
+    }
+
+    private var includedTransactions: [TransactionRecord] {
+        let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
+        return transactions.filter {
+            SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
+        }
+    }
+
+    private var suggestionTransactions: [TransactionRecord] {
+        includedTransactions.filter {
+            $0.date >= previousMonth.start && $0.date < currentMonth.end
+        }
+    }
+
+    private var questionTransactions: [TransactionRecord] {
+        Array(includedTransactions.lazy.filter { $0.date >= transactionCutoff }.prefix(120))
+    }
+
+    private var request: Request {
+        let suggestionTransactions = suggestionTransactions
+        return Request(
+            suggestions: SavingsSuggestionsCoordinator.Request(
+                key: SavingsSuggestionsCache.InputsKey(
+                    dataHash: RecordHash.transactions(suggestionTransactions),
+                    rulesHash: RecordHash.rules(rules),
+                    excludedAccountsRaw: excludedAccountsRaw,
+                    monthlyBudget: monthlyBudget,
+                    monthStart: currentMonth.start
+                )
+            ),
+            questionDataHash: RecordHash.transactions(questionTransactions)
+        )
+    }
+
+    var body: some View {
+        Color.clear
+            .onChange(of: request, initial: true) { _, newRequest in
+                refresh(newRequest)
+            }
+            .onDisappear { coordinator.suspend() }
+            .accessibilityHidden(true)
+    }
+
+    private func refresh(_ request: Request) {
+        let rules = rules
+        questionEntries = questionTransactions.map { transaction in
+            TransactionQuestionContext.Entry(
+                date: transaction.date,
+                title: transaction.title,
+                amount: transaction.amount,
+                currency: transaction.isoCurrencyCode,
+                category: transaction.resolvedCategory(using: rules).displayName
+            )
+        }
+        coordinator.refresh(
+            request.suggestions,
+            transactions: suggestionTransactions.map(AnalysisTransaction.init(record:)),
+            rules: rules.map(CategoryRuleSpec.init(rule:)),
+            currentMonth: currentMonth,
+            previousMonth: previousMonth,
+            monthlyBudget: monthlyBudget
+        )
+    }
+}
+
 struct SuggestionCard: View {
     let suggestion: SavingsSuggestion
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             ZStack {
-                Circle().fill(suggestion.tint.opacity(0.18)).frame(width: 44, height: 44)
+                Circle().fill(suggestion.color.opacity(0.18)).frame(width: 44, height: 44)
                 Image(systemName: suggestion.symbol)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(suggestion.tint)
+                    .foregroundStyle(suggestion.color)
             }
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -280,8 +359,8 @@ struct SuggestionCard: View {
                             .font(.caption2.weight(.bold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(suggestion.tint.opacity(0.18), in: Capsule())
-                            .foregroundStyle(suggestion.tint)
+                            .background(suggestion.color.opacity(0.18), in: Capsule())
+                            .foregroundStyle(suggestion.color)
                             .fixedSize()
                     }
                 }

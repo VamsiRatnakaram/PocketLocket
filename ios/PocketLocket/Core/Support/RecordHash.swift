@@ -19,6 +19,7 @@ enum RecordHash {
             hasher.combine(txn.id)
             hasher.combine(txn.amount)
             hasher.combine(txn.date)
+            hasher.combine(txn.isoCurrencyCode)
             // Both, not `title`. `title` collapses to `merchantName` whenever
             // one is set, which would hide an edit to `name` — and `name`
             // feeds both category resolution and search, so the cache would
@@ -42,6 +43,17 @@ enum RecordHash {
         for rule in rules {
             hasher.combine(rule.matchText)
             hasher.combine(rule.categoryRaw)
+        }
+        return hasher.finalize()
+    }
+
+    static func groupingRules(_ rules: [MerchantGroupingRule]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(rules.count)
+        for rule in rules.sorted(by: { $0.sourceKey < $1.sourceKey }) {
+            hasher.combine(rule.sourceKey)
+            hasher.combine(rule.groupID)
+            hasher.combine(rule.groupName)
         }
         return hasher.finalize()
     }

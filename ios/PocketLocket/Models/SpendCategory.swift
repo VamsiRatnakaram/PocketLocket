@@ -1,8 +1,31 @@
 import SwiftUI
 
+/// Sendable palette values for model output produced away from the main actor.
+/// SwiftUI `Color` is materialized only when a view renders the value.
+enum AppTint: String, Sendable {
+    case blue, brown, gray, green, indigo, mint, orange, pink, purple, red, systemGray, teal
+
+    var color: Color {
+        switch self {
+        case .blue: .blue
+        case .brown: .brown
+        case .gray: .gray
+        case .green: .green
+        case .indigo: .indigo
+        case .mint: .mint
+        case .orange: .orange
+        case .pink: .pink
+        case .purple: .purple
+        case .red: .red
+        case .systemGray: Color(.systemGray)
+        case .teal: .teal
+        }
+    }
+}
+
 /// The app's spend categories. Plaid's `personal_finance_category` values are
 /// mapped onto this smaller, friendlier set (see `CategoryMapper`).
-enum SpendCategory: String, CaseIterable, Identifiable, Codable {
+enum SpendCategory: String, CaseIterable, Identifiable, Codable, Sendable {
     case food
     case groceries
     case shopping
@@ -80,20 +103,23 @@ enum SpendCategory: String, CaseIterable, Identifiable, Codable {
     }
 
     var tint: Color {
+        appTint.color
+    }
+
+    var appTint: AppTint {
         switch self {
-        case .food: return .orange
-        case .groceries: return .green
-        case .shopping: return .pink
-        case .housing: return .blue
-        case .transport: return .teal
-        case .travel: return .purple
-        case .entertainment: return .indigo
-        case .health: return .red
-        case .services: return .brown
-        case .fees: return .gray
-        case .income: return .green
-        case .transfer: return .mint
-        case .other: return Color(.systemGray)
+        case .food: .orange
+        case .groceries, .income: .green
+        case .shopping: .pink
+        case .housing: .blue
+        case .transport: .teal
+        case .travel: .purple
+        case .entertainment: .indigo
+        case .health: .red
+        case .services: .brown
+        case .fees: .gray
+        case .transfer: .mint
+        case .other: .systemGray
         }
     }
 }

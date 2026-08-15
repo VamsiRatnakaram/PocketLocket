@@ -55,6 +55,21 @@ struct AnalysisTransaction: Sendable, Hashable {
         if let merchantName, !merchantName.isEmpty { return merchantName }
         return name
     }
+
+    /// Mirrors `TransactionRecord.resolvedCategory(using:)` without carrying a
+    /// SwiftData model across an actor boundary.
+    func resolvedCategory(using index: CategoryRuleIndex) -> SpendCategory {
+        if let categoryOverride { return categoryOverride }
+        let haystack = ((merchantName ?? "") + " " + name).lowercased()
+        if let ruleCategory = index.category(for: haystack) { return ruleCategory }
+        if isMatchedTransfer { return .transfer }
+        return CategoryResolver.resolve(
+            name: name,
+            merchant: merchantName,
+            plaidPrimary: categoryPrimary,
+            index: index
+        )
+    }
 }
 
 /// A self-contained, `Sendable` description of one analysis computation.
@@ -63,6 +78,7 @@ struct AnalysisComputeRequest: Sendable {
     var categoryFilter: SpendCategory?
     var transactions: [AnalysisTransaction]
     var rules: [CategoryRuleSpec]
+    var groupingRules: [MerchantGroupingRuleSpec] = []
 }
 
 /// Runs the analysis pipeline off the main thread.
@@ -72,9 +88,8 @@ struct AnalysisComputeRequest: Sendable {
 /// a burst of syncs can't spin up N parallel full analyses), and the two-stage
 /// memo below is mutated under the actor's isolation.
 ///
-/// The memo lives here rather than in the view so it survives view teardown —
-/// `AnalysisRootView` destroys `AnalysisView` whenever you switch to the Save
-/// segment, and re-entering the tab should not repay the full cost.
+/// The memo lives here rather than in the view so completed work remains
+/// available when Analysis temporarily detaches its query-owning data driver.
 actor AnalysisComputeEngine {
     static let shared = AnalysisComputeEngine()
 
@@ -84,28 +99,17 @@ actor AnalysisComputeEngine {
     /// for tests.
     private(set) var missCount = 0
 
-    /// Mirrors `TransactionRecord.resolvedCategory`: override, then user rule,
-    /// then a matched transfer pair, then provider/heuristics.
-    private static func category(for txn: AnalysisTransaction, index: CategoryRuleIndex) -> SpendCategory {
-        if let override = txn.categoryOverride { return override }
-        let haystack = ((txn.merchantName ?? "") + " " + txn.name).lowercased()
-        if let ruleCategory = index.category(for: haystack) { return ruleCategory }
-        if txn.isMatchedTransfer { return .transfer }
-        return CategoryResolver.resolve(
-            name: txn.name,
-            merchant: txn.merchantName,
-            plaidPrimary: txn.categoryPrimary,
-            index: index
-        )
-    }
-
     /// Returns nil if the calling task was cancelled partway through.
     ///
     /// The actor runs one request at a time, so work nobody will ever look at
     /// still made the newest request wait for it. Checking cancellation inside
     /// the loop lets a superseded pass release the actor early.
     func snapshot(for request: AnalysisComputeRequest) -> AnalysisSnapshot? {
-        cache.snapshot(key: request.key, categoryFilter: request.categoryFilter) {
+        cache.snapshot(
+            key: request.key,
+            categoryFilter: request.categoryFilter,
+            groupingRules: request.groupingRules
+        ) {
             self.missCount += 1
             // Category resolution is the expensive half (token matching against
             // the rule index plus the heuristics table), so it happens here,
@@ -120,7 +124,7 @@ actor AnalysisComputeEngine {
                     MerchantAnalytics.Input(
                         title: txn.title,
                         amount: txn.amount,
-                        category: Self.category(for: txn, index: index),
+                        category: txn.resolvedCategory(using: index),
                         date: txn.date
                     )
                 )
@@ -167,9 +171,8 @@ final class AnalysisSnapshotCoordinator {
     /// Returns nil when the pass was superseded partway through.
     typealias Compute = @Sendable (AnalysisComputeRequest) async -> AnalysisSnapshot?
 
-    /// Shared because `AnalysisView` is destroyed and recreated by the
-    /// Analysis/Save segmented picker; keeping the last result here means
-    /// re-entering the tab renders immediately instead of flashing a spinner.
+    /// Shared so re-entering this tab later can render the last result
+    /// immediately instead of flashing a spinner.
     static let shared = AnalysisSnapshotCoordinator()
 
     private(set) var phase: Phase = .idle
@@ -208,7 +211,12 @@ final class AnalysisSnapshotCoordinator {
     ///
     /// `transactions`/`rules` must already be extracted from SwiftData by the
     /// caller on the main thread.
-    func refresh(_ request: Request, transactions: [AnalysisTransaction], rules: [CategoryRuleSpec]) {
+    func refresh(
+        _ request: Request,
+        transactions: [AnalysisTransaction],
+        rules: [CategoryRuleSpec],
+        groupingRules: [MerchantGroupingRuleSpec] = []
+    ) {
         markRequested(request)
 
         // Already showing exactly this result — repeated renders are free.
@@ -227,7 +235,8 @@ final class AnalysisSnapshotCoordinator {
             key: request.key,
             categoryFilter: request.categoryFilter,
             transactions: transactions,
-            rules: rules
+            rules: rules,
+            groupingRules: groupingRules
         )
 
         activeTask = Task { [weak self] in
@@ -245,6 +254,16 @@ final class AnalysisSnapshotCoordinator {
             guard !Task.isCancelled else { return }
             self.apply(result, for: request)
         }
+    }
+
+    /// Stops work and detaches the current request when Analysis becomes
+    /// hidden. A non-cooperative compute closure still cannot publish because
+    /// both its task cancellation and latest-request guards will fail.
+    func suspend() {
+        activeTask?.cancel()
+        activeTask = nil
+        latestRequest = nil
+        isRecomputing = false
     }
 
     /// Records the newest request. Split out so the supersede guard can be
