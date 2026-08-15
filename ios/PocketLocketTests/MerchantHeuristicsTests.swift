@@ -121,4 +121,24 @@ final class MerchantHeuristicsTests: XCTestCase {
     func testUnknownMerchantFallsThrough() {
         XCTAssertNil(category("ACME WIDGETS LLC"))
     }
+
+    /// Issuers use their own abbreviations for a card payoff, and token
+    /// matching means "cc pymt" cannot reach the "mobile pymt" inside Capital
+    /// One's descriptor — each abbreviation needs its own entry.
+    func testIssuerShortFormCardPaymentsAreTransfers() {
+        for descriptor in ["CAPITAL ONE MOBILE PYMT", "CHASE CREDIT CRD AUTOPAY",
+                           "DISCOVER E-PAYMENT", "AMEX ONLINE PYMT", "DISCOVER AUTOPAY"] {
+            XCTAssertEqual(MerchantHeuristics.category(for: descriptor.lowercased()), .transfer, descriptor)
+        }
+    }
+
+    /// "Autopay" is not card-payment evidence. Treating it as one removed real
+    /// spending from the budget entirely.
+    func testBillerAutopayIsNotATransfer() {
+        for (descriptor, expected) in [("NETFLIX AUTOPAY", SpendCategory.entertainment),
+                                       ("VERIZON AUTOPAY", .housing),
+                                       ("T-MOBILE PAYMENT", .housing)] {
+            XCTAssertEqual(MerchantHeuristics.category(for: descriptor.lowercased()), expected, descriptor)
+        }
+    }
 }
