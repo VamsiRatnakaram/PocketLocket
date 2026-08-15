@@ -12,7 +12,9 @@ final class RecordHashTests: XCTestCase {
         currency: String = "USD",
         date: Date = Date(timeIntervalSince1970: 1_700_000_000),
         categoryPrimary: String? = nil,
-        accountId: String? = "checking"
+        accountId: String? = "checking",
+        transferPairId: String? = nil,
+        categoryOverrideRaw: String? = nil
     ) -> TransactionRecord {
         TransactionRecord(
             id: id,
@@ -26,7 +28,9 @@ final class RecordHashTests: XCTestCase {
             categoryPrimary: categoryPrimary,
             categoryDetailed: nil,
             logoURL: nil,
-            accountId: accountId
+            accountId: accountId,
+            transferPairId: transferPairId,
+            categoryOverrideRaw: categoryOverrideRaw
         )
     }
 
@@ -57,6 +61,18 @@ final class RecordHashTests: XCTestCase {
         XCTAssertNotEqual(base, RecordHash.transactions([txn(date: Date(timeIntervalSince1970: 1_700_086_400))]))
         XCTAssertNotEqual(base, RecordHash.transactions([txn(categoryPrimary: "FOOD_AND_DRINK")]))
         XCTAssertNotEqual(base, RecordHash.transactions([txn(accountId: "savings")]))
+    }
+
+    func testOverrideAndTransferPairChangesAreDetected() {
+        let base = RecordHash.transactions([txn()])
+        XCTAssertNotEqual(
+            base,
+            RecordHash.transactions([txn(categoryOverrideRaw: SpendCategory.shopping.rawValue)])
+        )
+        XCTAssertNotEqual(
+            base,
+            RecordHash.transactions([txn(transferPairId: "paired-transaction")])
+        )
     }
 
     func testCountChangeIsDetected() {

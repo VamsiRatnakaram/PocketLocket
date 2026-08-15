@@ -35,14 +35,14 @@ struct MainTabView: View {
         }
     }
 
-    /// Allows `-tab <home|transactions|accounts|analysis>` at launch (used for testing).
+    /// Allows `-tab <home|transactions|accounts|insights>` at launch (used for testing).
     static func initialTab() -> Tab {
         let args = CommandLine.arguments
         if let index = args.firstIndex(of: "-tab"), index + 1 < args.count {
             switch args[index + 1] {
             case "transactions": return .transactions
             case "accounts": return .accounts
-            case "save", "analysis": return .analysis
+            case "save", "analysis", "insights": return .analysis
             default: return .home
             }
         }

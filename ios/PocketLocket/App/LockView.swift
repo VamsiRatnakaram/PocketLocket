@@ -9,7 +9,7 @@ struct LockView: View {
             Image(systemName: "lock.fill")
                 .font(.system(size: 52))
                 .foregroundStyle(.tint)
-            Text("Budget is locked")
+            Text("PocketLocket is locked")
                 .font(.title2.bold())
             Text("Authenticate to view your finances.")
                 .font(.subheadline)

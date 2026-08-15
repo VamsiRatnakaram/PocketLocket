@@ -366,8 +366,13 @@ enum MerchantAnalytics {
 
     struct CategoryAverage: Identifiable {
         let category: SpendCategory
-        let averagePerMonth: Double
-        let trend: Trend
+        let currentMonthSpend: Double
+        let priorMonthsAverage: Double
+        let priorMonthCount: Int
+        let previousMonthSpend: Double
+        let previousMonthIsComplete: Bool
+        let priorAverageTrend: Trend
+        let previousMonthTrend: Trend
         var id: String { category.rawValue }
     }
 
@@ -530,9 +535,147 @@ enum MerchantAnalytics {
         .sorted { $0.monthStart < $1.monthStart }
     }
 
-    /// Average monthly spend per category plus a trend (recent half of the
-    /// window vs. earlier half), e.g. "Groceries: avg $412/mo, trending down".
-    static func categoryAverages(_ inputs: [Input], calendar: Calendar = .current) -> [CategoryAverage] {
+    /// Trailing 30-day spend with a seven-day exponential smoothing pass.
+    /// The lag prevents a monthly bill paid a day later from looking like a
+    /// one-day spending collapse when the previous payment leaves the window.
+    static func categoryTrendTotals(
+        _ inputs: [Input],
+        through requestedEnd: Date? = nil,
+        calendar: Calendar = .current
+    ) -> [CategoryMonth] {
+        let spending = spendingOnly(inputs)
+        guard let earliest = spending.map(\.date).min(),
+              let latest = spending.map(\.date).max()
+        else { return [] }
+
+        let firstSample = calendar.startOfDay(for: earliest)
+        let latestTransactionDay = calendar.startOfDay(for: latest)
+        let requestedEndDay = requestedEnd.map(calendar.startOfDay(for:))
+        let lastSample = max(latestTransactionDay, requestedEndDay ?? latestTransactionDay)
+        let daySpan = calendar.dateComponents([.day], from: firstSample, to: lastSample).day ?? 0
+        let stepDays = daySpan <= 730 ? 1 : (daySpan <= 1_825 ? 3 : 7)
+
+        var sampleDates = [firstSample]
+        var sample = firstSample
+        while let next = calendar.date(byAdding: .day, value: stepDays, to: sample), next < lastSample {
+            sampleDates.append(next)
+            sample = next
+        }
+        if sampleDates.last != lastSample { sampleDates.append(lastSample) }
+
+        let byCategory = Dictionary(grouping: spending, by: \.category)
+
+        var points: [CategoryMonth] = []
+        for (category, categoryInputs) in byCategory {
+            let sorted = categoryInputs.sorted { $0.date < $1.date }
+            var lowerIndex = 0
+            var upperIndex = 0
+            var rollingTotal = 0.0
+            var smoothedTotal: Double?
+            let dailySmoothingFactor = 0.25
+            let smoothingFactor = 1 - pow(1 - dailySmoothingFactor, Double(stepDays))
+
+            for sampleDate in sampleDates {
+                let windowEnd = calendar.date(byAdding: .day, value: 1, to: sampleDate)
+                    ?? sampleDate.addingTimeInterval(86_400)
+                let windowStart = calendar.date(byAdding: .day, value: -30, to: windowEnd)
+                    ?? windowEnd.addingTimeInterval(-30 * 86_400)
+
+                while upperIndex < sorted.count, sorted[upperIndex].date < windowEnd {
+                    rollingTotal += sorted[upperIndex].amount
+                    upperIndex += 1
+                }
+                while lowerIndex < upperIndex, sorted[lowerIndex].date < windowStart {
+                    rollingTotal -= sorted[lowerIndex].amount
+                    lowerIndex += 1
+                }
+
+                let nextSmoothedTotal = smoothedTotal.map {
+                    $0 + smoothingFactor * (rollingTotal - $0)
+                } ?? rollingTotal
+                smoothedTotal = nextSmoothedTotal
+
+                points.append(CategoryMonth(
+                    category: category,
+                    monthStart: sampleDate,
+                    amount: nextSmoothedTotal
+                ))
+            }
+        }
+        return points.sorted {
+            if $0.monthStart == $1.monthStart {
+                return $0.category.rawValue < $1.category.rawValue
+            }
+            return $0.monthStart < $1.monthStart
+        }
+    }
+
+    /// Running spend from the selected range's first day. Unlike a rolling
+    /// window, a charge never falls out later, so monthly bills paid a day or
+    /// two apart cannot create a false spending collapse.
+    static func categoryCumulativeTotals(
+        _ inputs: [Input],
+        from requestedStart: Date? = nil,
+        through requestedEnd: Date? = nil,
+        calendar: Calendar = .current
+    ) -> [CategoryMonth] {
+        let spending = spendingOnly(inputs)
+        guard let earliest = spending.map(\.date).min(),
+              let latest = spending.map(\.date).max()
+        else { return [] }
+
+        let firstSample = calendar.startOfDay(for: requestedStart ?? earliest)
+        let lastSample = calendar.startOfDay(for: requestedEnd ?? latest)
+        guard firstSample <= lastSample else { return [] }
+
+        var sampleDates: [Date] = []
+        var sample = firstSample
+        while sample <= lastSample {
+            sampleDates.append(sample)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: sample) else { break }
+            sample = next
+        }
+
+        let byCategory = Dictionary(grouping: spending, by: \.category)
+        var points: [CategoryMonth] = []
+        for (category, categoryInputs) in byCategory {
+            let sorted = categoryInputs.sorted { $0.date < $1.date }
+            var inputIndex = 0
+            var cumulativeTotal = 0.0
+
+            while inputIndex < sorted.count, sorted[inputIndex].date < firstSample {
+                inputIndex += 1
+            }
+            for sampleDate in sampleDates {
+                let dayEnd = calendar.date(byAdding: .day, value: 1, to: sampleDate)
+                    ?? sampleDate.addingTimeInterval(86_400)
+                while inputIndex < sorted.count, sorted[inputIndex].date < dayEnd {
+                    cumulativeTotal += sorted[inputIndex].amount
+                    inputIndex += 1
+                }
+                points.append(CategoryMonth(
+                    category: category,
+                    monthStart: sampleDate,
+                    amount: cumulativeTotal
+                ))
+            }
+        }
+        return points.sorted {
+            if $0.monthStart == $1.monthStart {
+                return $0.category.rawValue < $1.category.rawValue
+            }
+            return $0.monthStart < $1.monthStart
+        }
+    }
+
+    /// Current-month spend per category compared with the average of every
+    /// earlier month in the selected window.
+    static func categoryAverages(
+        _ inputs: [Input],
+        window: DateInterval? = nil,
+        dataCoverageStart: Date? = nil,
+        calendar: Calendar = .current
+    ) -> [CategoryAverage] {
         let monthly = categoryMonthlyTotals(inputs, calendar: calendar)
         guard !monthly.isEmpty else { return [] }
 
@@ -540,12 +683,13 @@ enum MerchantAnalytics {
         // category appeared in. Dividing a category's total by its *present*
         // months reported a single $120 charge in a year as "$120/mo", and
         // left a category that stopped entirely looking flat instead of down.
-        guard let firstMonth = monthly.first?.monthStart,
-              let lastMonth = monthly.last?.monthStart
-        else { return [] }
+        let firstMonth = window?.start ?? monthly.first?.monthStart
+        let endMonth = window?.end
+            ?? calendar.date(byAdding: .month, value: 1, to: monthly.last?.monthStart ?? Date())
+        guard let firstMonth, let endMonth else { return [] }
         var windowMonths: [Date] = []
         var month = firstMonth
-        while month <= lastMonth {
+        while month < endMonth {
             windowMonths.append(month)
             guard let next = calendar.date(byAdding: .month, value: 1, to: month) else { break }
             month = next
@@ -554,24 +698,45 @@ enum MerchantAnalytics {
         var byCategory: [SpendCategory: [Date: Double]] = [:]
         for entry in monthly { byCategory[entry.category, default: [:]][entry.monthStart] = entry.amount }
 
-        return byCategory.map { category, amounts in
-            let series = windowMonths.map { amounts[$0] ?? 0 }
-            let total = series.reduce(0, +)
-            let average = total / Double(series.count)
+        let incompleteCoverageMonth = dataCoverageStart.flatMap { coverageStart -> Date? in
+            guard let interval = calendar.dateInterval(of: .month, for: coverageStart),
+                  !calendar.isDate(coverageStart, inSameDayAs: interval.start)
+            else { return nil }
+            return interval.start
+        }
 
-            let midIndex = series.count / 2
-            let earlierHalf = Array(series.prefix(midIndex))
-            let recentHalf = Array(series.suffix(series.count - midIndex))
-            let earlierAvg = earlierHalf.isEmpty ? 0 : earlierHalf.reduce(0, +) / Double(earlierHalf.count)
-            let recentAvg = recentHalf.isEmpty ? 0 : recentHalf.reduce(0, +) / Double(recentHalf.count)
+        return byCategory.map { category, amounts in
+            let currentMonthSpend = windowMonths.last.flatMap { amounts[$0] } ?? 0
+            let previousMonth = windowMonths.dropLast().last
+            let previousMonthSpend = previousMonth.flatMap { amounts[$0] } ?? 0
+            let previousMonthIsComplete = previousMonth != nil
+                && previousMonth != incompleteCoverageMonth
+            let priorMonths = windowMonths.dropLast()
+                .filter { $0 != incompleteCoverageMonth }
+                .map { amounts[$0] ?? 0 }
+            let priorMonthsAverage = priorMonths.isEmpty
+                ? 0
+                : priorMonths.reduce(0, +) / Double(priorMonths.count)
 
             return CategoryAverage(
                 category: category,
-                averagePerMonth: average,
-                trend: series.count >= 2 ? trend(current: recentAvg, previous: earlierAvg) : .flat
+                currentMonthSpend: currentMonthSpend,
+                priorMonthsAverage: priorMonthsAverage,
+                priorMonthCount: priorMonths.count,
+                previousMonthSpend: previousMonthSpend,
+                previousMonthIsComplete: previousMonthIsComplete,
+                priorAverageTrend: trend(current: currentMonthSpend, previous: priorMonthsAverage),
+                previousMonthTrend: previousMonthIsComplete
+                    ? trend(current: currentMonthSpend, previous: previousMonthSpend)
+                    : .flat
             )
         }
-        .sorted { $0.averagePerMonth > $1.averagePerMonth }
+        .sorted {
+            if $0.currentMonthSpend == $1.currentMonthSpend {
+                return $0.priorMonthsAverage > $1.priorMonthsAverage
+            }
+            return $0.currentMonthSpend > $1.currentMonthSpend
+        }
     }
 
     private static func trend(current: Double, previous: Double) -> Trend {

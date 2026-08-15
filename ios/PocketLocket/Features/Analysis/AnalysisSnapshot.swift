@@ -16,33 +16,45 @@ struct AnalysisSnapshot: Sendable {
     var recurring: [MerchantAnalytics.MerchantStats] = []
     var categoryAverages: [MerchantAnalytics.CategoryAverage] = []
     var categoryMonthly: [MerchantAnalytics.CategoryMonth] = []
+    var categoryCumulative: [MerchantAnalytics.CategoryMonth] = []
 
     static func make(
         inputs: [MerchantAnalytics.Input],
+        window: DateInterval? = nil,
         categoryFilter: SpendCategory?,
+        chartEnd: Date? = nil,
         groupingRules: [MerchantGroupingRuleSpec] = [],
         merchantLimit: Int = 8,
         minRecurringMonths: Int = 3
     ) -> AnalysisSnapshot {
-        let allStats = MerchantAnalytics.merchantStats(inputs, groupingRules: groupingRules)
-        guard !allStats.isEmpty else { return AnalysisSnapshot() }
+        let dataCoverageStart = inputs.map(\.date).min()
+        let selectedEnd = window?.end.addingTimeInterval(-1)
+        let cumulativeEnd = [chartEnd, selectedEnd].compactMap { $0 }.min()
+        let selectedInputs = window.map { interval in
+            inputs.filter { $0.date >= interval.start && $0.date < interval.end }
+        } ?? inputs
+        let domainStats = MerchantAnalytics.merchantStats(inputs, groupingRules: groupingRules)
+        guard !domainStats.isEmpty else { return AnalysisSnapshot() }
+        let allStats = window == nil
+            ? domainStats
+            : MerchantAnalytics.merchantStats(selectedInputs, groupingRules: groupingRules)
 
         // Positive amounts only, matching what every section below counts —
         // otherwise a category with nothing but refunds offers a chip that
         // filters to an empty screen.
-        let present = Set(inputs.filter { $0.category.isSpending && $0.amount > 0 }.map(\.category))
+        let present = Set(selectedInputs.filter { $0.category.isSpending && $0.amount > 0 }.map(\.category))
         let available = SpendCategory.allCases.filter { present.contains($0) }
 
         let filteredInputs: [MerchantAnalytics.Input]
         let filteredStats: [MerchantAnalytics.MerchantStats]
         if let categoryFilter {
-            filteredInputs = inputs.filter { $0.category == categoryFilter }
+            filteredInputs = selectedInputs.filter { $0.category == categoryFilter }
             filteredStats = MerchantAnalytics.merchantStats(
                 filteredInputs,
                 groupingRules: groupingRules
             )
         } else {
-            filteredInputs = inputs
+            filteredInputs = selectedInputs
             filteredStats = allStats
         }
 
@@ -63,8 +75,17 @@ struct AnalysisSnapshot: Sendable {
             // to a single line, shrank the list, and yanked the chip row out
             // from under your finger. The filter scopes the merchant sections
             // below it; the chart has its own tap-to-hide legend for focus.
-            categoryAverages: MerchantAnalytics.categoryAverages(inputs),
-            categoryMonthly: MerchantAnalytics.categoryMonthlyTotals(inputs)
+            categoryAverages: MerchantAnalytics.categoryAverages(
+                selectedInputs,
+                window: window,
+                dataCoverageStart: dataCoverageStart
+            ),
+            categoryMonthly: MerchantAnalytics.categoryTrendTotals(inputs, through: chartEnd),
+            categoryCumulative: MerchantAnalytics.categoryCumulativeTotals(
+                selectedInputs,
+                from: window?.start,
+                through: cumulativeEnd
+            )
         )
     }
 }
@@ -82,15 +103,6 @@ final class AnalysisSnapshotCache {
         var rulesHash: Int
         var groupingRulesHash: Int = 0
         var excludedAccountsRaw: String
-        var range: AnalysisTimeRange
-        /// The resolved start of the window, truncated to a day.
-        ///
-        /// The relative ranges measure back from *now*, so `range` alone does
-        /// not identify the data they select: leave the app open across
-        /// midnight and "last 3 months" quietly covers a different span while
-        /// the key claims nothing changed. Truncating to a day makes this
-        /// stable within a render pass instead of changing every tick.
-        var windowStart: Date?
     }
 
     private var inputsKey: InputsKey?
@@ -98,6 +110,8 @@ final class AnalysisSnapshotCache {
 
     private var snapshotKey: InputsKey?
     private var snapshotFilter: SpendCategory?
+    private var snapshotWindow: DateInterval?
+    private var snapshotChartEnd: Date?
     private var hasSnapshot = false
     private var snapshot = AnalysisSnapshot()
 
@@ -119,6 +133,8 @@ final class AnalysisSnapshotCache {
     /// recomputing only the stages whose inputs actually changed.
     func snapshot(
         key: InputsKey,
+        window: DateInterval? = nil,
+        chartEnd: Date? = nil,
         categoryFilter: SpendCategory?,
         groupingRules: [MerchantGroupingRuleSpec] = [],
         buildInputs: () -> [MerchantAnalytics.Input]?
@@ -132,14 +148,23 @@ final class AnalysisSnapshotCache {
             inputsKey = key
             hasSnapshot = false
         }
-        if !hasSnapshot || snapshotKey != key || snapshotFilter != categoryFilter {
+        if !hasSnapshot
+            || snapshotKey != key
+            || snapshotFilter != categoryFilter
+            || snapshotWindow != window
+            || snapshotChartEnd != chartEnd
+        {
             snapshot = AnalysisSnapshot.make(
                 inputs: inputs,
+                window: window,
                 categoryFilter: categoryFilter,
+                chartEnd: chartEnd,
                 groupingRules: groupingRules
             )
             snapshotKey = key
             snapshotFilter = categoryFilter
+            snapshotWindow = window
+            snapshotChartEnd = chartEnd
             hasSnapshot = true
         }
         return snapshot

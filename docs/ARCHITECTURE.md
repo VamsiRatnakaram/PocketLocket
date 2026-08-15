@@ -107,7 +107,7 @@ flowchart TD
 ### Layer responsibilities
 
 - **App/** — `RootView` shows `LockView` until `BiometricGate` reports unlocked,
-  then `MainTabView` (Home / Transactions / Accounts / Save). No sign-in step.
+  then `MainTabView` (Home / Transactions / Accounts / Insights). No sign-in step.
 - **Core/Security** —
   - `KeychainStore`: generic-password Keychain wrapper. Standard items are
     `WhenUnlockedThisDeviceOnly`; it also offers **biometric-protected** items via

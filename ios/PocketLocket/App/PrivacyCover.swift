@@ -10,7 +10,7 @@ struct PrivacyCover: View {
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 46))
                     .foregroundStyle(.tint)
-                Text("Budget")
+                Text("PocketLocket")
                     .font(.title2.bold())
             }
         }

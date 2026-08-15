@@ -145,21 +145,30 @@ final class MerchantAnalyticsTests: XCTestCase {
         XCTAssertEqual(monthly[1].amount, 80, accuracy: 0.0001)
     }
 
-    func testCategoryAveragesComputesMeanAndTrend() {
+    func testCategoryAveragesCompareCurrentMonthWithPriorAverage() {
         let inputs = [
             MerchantAnalytics.Input(title: "Groceries A", amount: 100, category: .groceries, date: date(2025, 1, 5)),
             MerchantAnalytics.Input(title: "Groceries A", amount: 300, category: .groceries, date: date(2025, 2, 5)),
+            MerchantAnalytics.Input(title: "Groceries A", amount: 500, category: .groceries, date: date(2025, 3, 5)),
         ]
 
         let averages = MerchantAnalytics.categoryAverages(inputs)
         XCTAssertEqual(averages.count, 1)
         let groceries = try! XCTUnwrap(averages.first)
         XCTAssertEqual(groceries.category, .groceries)
-        XCTAssertEqual(groceries.averagePerMonth, 200, accuracy: 0.0001)
-        if case .up = groceries.trend {
-            // Spend increased from Jan ($100) to Feb ($300) — expect an "up" trend.
+        XCTAssertEqual(groceries.currentMonthSpend, 500, accuracy: 0.0001)
+        XCTAssertEqual(groceries.priorMonthsAverage, 200, accuracy: 0.0001)
+        XCTAssertEqual(groceries.previousMonthSpend, 300, accuracy: 0.0001)
+        XCTAssertTrue(groceries.previousMonthIsComplete)
+        if case .up(let percent) = groceries.priorAverageTrend {
+            XCTAssertEqual(percent, 150, accuracy: 0.0001)
         } else {
-            XCTFail("Expected an upward trend, got \(groceries.trend)")
+            XCTFail("Expected an upward prior-average trend, got \(groceries.priorAverageTrend)")
+        }
+        if case .up(let percent) = groceries.previousMonthTrend {
+            XCTAssertEqual(percent, 200.0 / 3.0, accuracy: 0.0001)
+        } else {
+            XCTFail("Expected an upward previous-month trend, got \(groceries.previousMonthTrend)")
         }
     }
 
@@ -167,10 +176,9 @@ final class MerchantAnalyticsTests: XCTestCase {
         XCTAssertTrue(MerchantAnalytics.categoryAverages([]).isEmpty)
     }
 
-    /// A category is averaged over every month the window covers, not just the
-    /// months it appeared in. One $120 charge across a three-month window used
-    /// to be reported as "$120/mo".
-    func testCategoryAveragesDivideByWindowNotByMonthsPresent() {
+    /// The prior baseline includes zero-spend months, not just months where the
+    /// category appeared.
+    func testCategoryComparisonIncludesZeroSpendPriorMonths() {
         let calendar = Calendar(identifier: .gregorian)
         func month(_ index: Int) -> Date {
             calendar.date(from: DateComponents(year: 2025, month: index, day: 10))!
@@ -184,10 +192,67 @@ final class MerchantAnalyticsTests: XCTestCase {
 
         let averages = MerchantAnalytics.categoryAverages(inputs, calendar: calendar)
         let health = try? XCTUnwrap(averages.first { $0.category == .health })
-        XCTAssertEqual(health?.averagePerMonth ?? 0, 40, accuracy: 0.001)
+        XCTAssertEqual(health?.currentMonthSpend ?? 0, 0, accuracy: 0.001)
+        XCTAssertEqual(health?.priorMonthsAverage ?? 0, 60, accuracy: 0.001)
 
         let food = try? XCTUnwrap(averages.first { $0.category == .food })
-        XCTAssertEqual(food?.averagePerMonth ?? 0, 10, accuracy: 0.001)
+        XCTAssertEqual(food?.currentMonthSpend ?? 0, 10, accuracy: 0.001)
+        XCTAssertEqual(food?.priorMonthsAverage ?? 0, 10, accuracy: 0.001)
+    }
+
+    func testCategoryComparisonExcludesIncompleteFirstLedgerMonth() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let window = DateInterval(
+            start: date(2025, 5, 1),
+            end: date(2025, 8, 1)
+        )
+        let inputs = [
+            MerchantAnalytics.Input(title: "Rent", amount: 500, category: .housing, date: date(2025, 5, 15)),
+            MerchantAnalytics.Input(title: "Rent", amount: 1_000, category: .housing, date: date(2025, 6, 1)),
+            MerchantAnalytics.Input(title: "Rent", amount: 1_000, category: .housing, date: date(2025, 7, 1)),
+        ]
+
+        let housing = try XCTUnwrap(
+            MerchantAnalytics.categoryAverages(
+                inputs,
+                window: window,
+                dataCoverageStart: date(2025, 5, 15),
+                calendar: calendar
+            ).first
+        )
+
+        XCTAssertEqual(housing.currentMonthSpend, 1_000, accuracy: 0.001)
+        XCTAssertEqual(housing.priorMonthsAverage, 1_000, accuracy: 0.001)
+        XCTAssertEqual(housing.priorMonthCount, 1)
+        if case .flat = housing.priorAverageTrend {
+            // June is the only complete prior month; partial May is excluded.
+        } else {
+            XCTFail("Expected a flat trend, got \(housing.priorAverageTrend)")
+        }
+    }
+
+    func testPreviousMonthComparisonRejectsIncompleteLedgerMonth() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let window = DateInterval(
+            start: date(2025, 5, 1),
+            end: date(2025, 7, 1)
+        )
+        let inputs = [
+            MerchantAnalytics.Input(title: "Rent", amount: 500, category: .housing, date: date(2025, 5, 15)),
+            MerchantAnalytics.Input(title: "Rent", amount: 1_000, category: .housing, date: date(2025, 6, 1)),
+        ]
+
+        let housing = try XCTUnwrap(
+            MerchantAnalytics.categoryAverages(
+                inputs,
+                window: window,
+                dataCoverageStart: date(2025, 5, 15),
+                calendar: calendar
+            ).first
+        )
+
+        XCTAssertEqual(housing.previousMonthSpend, 500, accuracy: 0.001)
+        XCTAssertFalse(housing.previousMonthIsComplete)
     }
 
     func testCategoryAveragesIncludeInactiveMonthsBetweenFirstAndLastSpend() {
@@ -201,7 +266,8 @@ final class MerchantAnalyticsTests: XCTestCase {
 
         let averages = MerchantAnalytics.categoryAverages(inputs, calendar: calendar)
         let health = try? XCTUnwrap(averages.first { $0.category == .health })
-        XCTAssertEqual(health?.averagePerMonth ?? 0, 10, accuracy: 0.001)
+        XCTAssertEqual(health?.currentMonthSpend ?? 0, 0, accuracy: 0.001)
+        XCTAssertEqual(health?.priorMonthsAverage ?? 0, 120.0 / 11.0, accuracy: 0.001)
     }
 
     // MARK: - Real descriptor shapes from Charlie's ledger
