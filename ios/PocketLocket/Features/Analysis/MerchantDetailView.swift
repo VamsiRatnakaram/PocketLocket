@@ -1,6 +1,67 @@
 import SwiftUI
 import Charts
 
+enum MerchantDetailBuilder {
+    struct Item: Identifiable {
+        let transaction: TransactionRecord
+        let category: SpendCategory
+        var id: String { transaction.id }
+    }
+
+    struct Content {
+        let items: [Item]
+        let monthly: [MerchantAnalytics.CategoryMonth]
+    }
+
+    /// Match first, then resolve categories only for this merchant.
+    ///
+    /// The former order categorized every transaction in the scoped ledger
+    /// before asking whether it belonged here, blocking the navigation
+    /// animation. This builder also produces every section in one pass.
+    static func build(
+        stats: MerchantAnalytics.MerchantStats,
+        transactions: [TransactionRecord],
+        calendar: Calendar = .current,
+        categoryFor: (TransactionRecord) -> SpendCategory
+    ) -> Content {
+        var items: [Item] = []
+        items.reserveCapacity(stats.visitCount)
+        for transaction in transactions
+        where transaction.amount > 0 && stats.matches(transaction.title) {
+            let category = categoryFor(transaction)
+            guard category.isSpending else { continue }
+            items.append(Item(transaction: transaction, category: category))
+        }
+        items.sort { $0.transaction.date > $1.transaction.date }
+
+        var buckets: [Date: Double] = [:]
+        for item in items {
+            guard let monthStart = calendar.dateInterval(
+                of: .month,
+                for: item.transaction.date
+            )?.start else { continue }
+            buckets[monthStart, default: 0] += item.transaction.amount
+        }
+        let monthly = buckets
+            .map {
+                MerchantAnalytics.CategoryMonth(
+                    category: stats.category,
+                    monthStart: $0.key,
+                    amount: $0.value
+                )
+            }
+            .sorted { $0.monthStart < $1.monthStart }
+
+        return Content(items: items, monthly: monthly)
+    }
+}
+
+private struct MerchantDetailContentKey: Equatable {
+    let dataHash: Int
+    let rulesHash: Int
+    let merchantID: String
+}
+
 /// Drill-down for a single merchant: visit history over time and every
 /// transaction, most recent first — reuses `TransactionRow`/`TransactionDetailView`
 /// from the Transactions feature for a consistent look.
@@ -10,34 +71,34 @@ struct MerchantDetailView: View {
     let rules: [CategoryRule]
 
     @Environment(\.dismiss) private var dismiss
-    @State private var detail: TransactionRecord?
+    @State private var detail: MerchantDetailBuilder.Item?
     @State private var showGroupingEditor = false
     @State private var dismissAfterGroupingEdit = false
     @State private var dismissAfterTransactionGroupingEdit = false
+    @State private var contentCache =
+        DerivedCache<MerchantDetailContentKey, MerchantDetailBuilder.Content>()
 
-    private var items: [TransactionRecord] {
-        transactions
-            .filter {
-                $0.amount > 0
-                    && $0.resolvedCategory(using: rules).isSpending
-                    && stats.matches($0.title)
+    private var content: MerchantDetailBuilder.Content {
+        let key = MerchantDetailContentKey(
+            dataHash: RecordHash.transactions(transactions),
+            rulesHash: RecordHash.rules(rules),
+            merchantID: stats.id
+        )
+        return contentCache.value(for: key) {
+            MerchantDetailBuilder.build(
+                stats: stats,
+                transactions: transactions
+            ) {
+                $0.resolvedCategory(using: rules)
             }
-            .sorted { $0.date > $1.date }
-    }
-
-    private var monthly: [MerchantAnalytics.CategoryMonth] {
-        let calendar = Calendar.current
-        var buckets: [Date: Double] = [:]
-        for txn in items {
-            guard let monthStart = calendar.dateInterval(of: .month, for: txn.date)?.start else { continue }
-            buckets[monthStart, default: 0] += txn.amount
         }
-        return buckets
-            .map { MerchantAnalytics.CategoryMonth(category: stats.category, monthStart: $0.key, amount: $0.value) }
-            .sorted { $0.monthStart < $1.monthStart }
     }
 
     var body: some View {
+        detailList(content)
+    }
+
+    private func detailList(_ content: MerchantDetailBuilder.Content) -> some View {
         List {
             Section {
                 summary
@@ -45,21 +106,27 @@ struct MerchantDetailView: View {
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
 
-            if monthly.count > 1 {
+            if content.monthly.count > 1 {
                 Section("Spend over time") {
-                    chart
+                    chart(content.monthly)
                 }
             }
 
             Section {
-                ForEach(items) { txn in
-                    Button { detail = txn } label: {
-                        TransactionRow(txn: txn, category: txn.resolvedCategory(using: rules))
+                ForEach(content.items) { item in
+                    Button { detail = item } label: {
+                        TransactionRow(
+                            txn: item.transaction,
+                            category: item.category
+                        )
                     }
                     .buttonStyle(PressableStyle(scale: 0.98))
                 }
             } header: {
-                Text("\(items.count) transaction\(items.count == 1 ? "" : "s")")
+                Text(
+                    "\(content.items.count) transaction"
+                        + "\(content.items.count == 1 ? "" : "s")"
+                )
             }
         }
         .listStyle(.plain)
@@ -74,10 +141,10 @@ struct MerchantDetailView: View {
         }
         .sheet(item: $detail, onDismiss: {
             if dismissAfterTransactionGroupingEdit { dismiss() }
-        }) { txn in
+        }) { item in
             TransactionDetailView(
-                txn: txn,
-                currentCategory: txn.resolvedCategory(using: rules)
+                txn: item.transaction,
+                currentCategory: item.category
             ) {
                 dismissAfterTransactionGroupingEdit = true
             }
@@ -112,7 +179,7 @@ struct MerchantDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var chart: some View {
+    private func chart(_ monthly: [MerchantAnalytics.CategoryMonth]) -> some View {
         Chart(monthly) { entry in
             BarMark(
                 x: .value("Month", entry.monthStart, unit: .month),
