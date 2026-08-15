@@ -16,6 +16,7 @@ struct CategoryDetailView: View {
     @State private var isSelecting = false
     @State private var selectedTransactionIDs: Set<String> = []
     @State private var assignmentErrorMessage: String?
+    @State private var itemsCache = DerivedCache<ItemsKey, [TransactionRecord]>()
 
     init(category: SpendCategory, interval: DateInterval, periodLabel: String) {
         self.category = category
@@ -30,22 +31,45 @@ struct CategoryDetailView: View {
         )
     }
 
-    /// Spending transactions in this category + period, most expensive first.
-    private var items: [TransactionRecord] {
-        let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
-        return transactions
-            .filter {
-                $0.amount > 0
-                    && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
-                    && $0.resolvedCategory(using: rules) == category
-            }
-            .sorted { $0.amount > $1.amount }
+    private struct ItemsKey: Equatable {
+        var dataHash: Int
+        var rulesHash: Int
+        var category: SpendCategory
+        var excludedAccountsRaw: String
     }
 
-    private var total: Double { items.reduce(0) { $0 + $1.amount } }
+    /// Spending transactions in this category + period, most expensive first.
+    ///
+    /// Seven places in `body` need this — the rows, the header count, two
+    /// toolbar `isEmpty` checks, the empty-state overlay, select-all, and the
+    /// total — and recomputing it at each one meant filtering, resolving a
+    /// category per transaction, and re-sorting seven times per render.
+    private var items: [TransactionRecord] {
+        let key = ItemsKey(
+            dataHash: RecordHash.transactions(transactions),
+            rulesHash: RecordHash.rules(rules),
+            category: category,
+            excludedAccountsRaw: excludedAccountsRaw
+        )
+        return itemsCache.value(for: key) {
+            let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
+            return transactions
+                .filter {
+                    $0.amount > 0
+                        && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
+                        && $0.resolvedCategory(using: rules) == category
+                }
+                .sorted { $0.amount > $1.amount }
+        }
+    }
 
     var body: some View {
-        List {
+        content(items)
+    }
+
+    private func content(_ items: [TransactionRecord]) -> some View {
+        let total = items.reduce(0) { $0 + $1.amount }
+        return List {
             Section {
                 ForEach(items) { txn in
                     if isSelecting {
@@ -88,7 +112,7 @@ struct CategoryDetailView: View {
                     Button("Cancel") { endSelection() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(allSelected ? "Deselect All" : "Select All") { toggleAll() }
+                    Button(allSelected(in: items) ? "Deselect All" : "Select All") { toggleAll(items) }
                         .disabled(items.isEmpty)
                 }
             } else {
@@ -117,7 +141,7 @@ struct CategoryDetailView: View {
         }
     }
 
-    private var allSelected: Bool {
+    private func allSelected(in items: [TransactionRecord]) -> Bool {
         !items.isEmpty && items.allSatisfy { selectedTransactionIDs.contains($0.id) }
     }
 
@@ -159,9 +183,9 @@ struct CategoryDetailView: View {
         }
     }
 
-    private func toggleAll() {
+    private func toggleAll(_ items: [TransactionRecord]) {
         let itemIDs = Set(items.map(\.id))
-        if allSelected {
+        if allSelected(in: items) {
             selectedTransactionIDs.subtract(itemIDs)
         } else {
             selectedTransactionIDs.formUnion(itemIDs)
@@ -172,7 +196,9 @@ struct CategoryDetailView: View {
         let selected = items.filter { selectedTransactionIDs.contains($0.id) }
         guard !selected.isEmpty else { return }
         do {
-            try CategoryAssignment.assign(destination, to: selected, using: rules, in: context)
+            try CategoryAssignment.assign(
+                destination, to: selected, using: rules, in: context, ledger: transactions
+            )
             endSelection()
         } catch {
             assignmentErrorMessage = error.localizedDescription

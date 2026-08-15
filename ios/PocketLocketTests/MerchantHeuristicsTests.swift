@@ -10,10 +10,27 @@ final class MerchantHeuristicsTests: XCTestCase {
         // With multiple accounts linked, these must NOT inflate the spend ring.
         XCTAssertEqual(category("AUTOPAY PAYMENT THANK YOU"), .transfer)
         XCTAssertEqual(category("ONLINE TRANSFER TO SAVINGS"), .transfer)
-        XCTAssertEqual(category("ZELLE TO ALEX"), .transfer)
         XCTAssertEqual(category("VENMO CASHOUT"), .transfer)
         XCTAssertEqual(category("ROBINHOOD FUNDING"), .transfer)
         XCTAssertFalse(SpendCategory.transfer.isSpending)
+    }
+
+    func testPeerToPeerPaymentsAreNotAssumedToBeTransfers() {
+        // The rail says how the money moved, not what it was for: the same
+        // descriptor covers repaying a friend and buying your half of dinner.
+        // Guessing "transfer" drops real spending out of the budget silently.
+        XCTAssertNil(category("ZELLE TO ALEX"))
+        XCTAssertNil(category("ZELLE TRANSFER TO ALEX"))
+        XCTAssertNil(category("VENMO PAYMENT"))
+        XCTAssertNil(category("CASH APP*JORDAN"))
+        XCTAssertNil(category("PAYPAL *SARAH M"))
+
+        // ...but moving your own money off the platform really is a transfer.
+        XCTAssertEqual(category("VENMO CASHOUT"), .transfer)
+        XCTAssertEqual(category("ZELLE INSTANT TRANSFER"), .transfer)
+
+        // A rail word must not smuggle it back in through the keyword table.
+        XCTAssertNil(category("VENMO PAYMENT ACH DEBIT"))
     }
 
     func testCommonMerchantsResolve() {
@@ -74,6 +91,31 @@ final class MerchantHeuristicsTests: XCTestCase {
     func testForeignTransactionFeeIsAFeeNotATransfer() {
         // "transaction" must not be mistaken for a "transfer".
         XCTAssertEqual(category("FOREIGN TRANSACTION FEE"), .fees)
+    }
+
+    func testSharedScootersAndBikesAreTransport() {
+        XCTAssertEqual(category("LIME*1"), .transport)
+        XCTAssertEqual(category("Lime"), .transport)
+        XCTAssertEqual(category("LIMEBIKE"), .transport)
+        XCTAssertEqual(category("BIRD RIDES INC"), .transport)
+        XCTAssertEqual(category("CITI BIKE NYC"), .transport)
+    }
+
+    /// "lime" and "spin" are ordinary words as well as scooter brands, so the
+    /// restaurants that contain them are listed ahead of the brand.
+    func testRestaurantsContainingScooterBrandNamesStayFood() {
+        XCTAssertEqual(category("LIME LEAF THAI CUISINE"), .food)
+        XCTAssertEqual(category("LIME FRESH MEXICAN GRILL"), .food)
+        XCTAssertEqual(category("KEY LIME PIE CO"), .food)
+        XCTAssertEqual(category("SPIN PIZZA KC"), .food)
+    }
+
+    /// Whole-token matching, so a brand name inside a longer word is not a hit.
+    /// Asserted as "not transport" rather than "no category", because the rest
+    /// of the descriptor is allowed to match something else.
+    func testScooterBrandDoesNotMatchInsideLongerWords() {
+        XCTAssertNotEqual(category("SUBLIME DONUTS"), .transport)
+        XCTAssertNotEqual(category("LIMELIGHT SUPPLY CO"), .transport)
     }
 
     func testUnknownMerchantFallsThrough() {

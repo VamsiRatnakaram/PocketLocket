@@ -16,6 +16,15 @@ final class TransactionRecord {
     var categoryDetailed: String?
     var logoURL: String?
     var accountId: String?
+    /// Set when this transaction was matched to a balancing leg on another of
+    /// your accounts (e.g. a credit card payoff). Nil when unmatched. Recomputed
+    /// idempotently after every sync by `TransferMatchService`.
+    var transferPairId: String?
+    /// A category chosen for *this transaction only*, overriding rules and
+    /// heuristics. Needed because some descriptors are genuinely ambiguous per
+    /// transaction — a Venmo can be your half of dinner one week and repaying a
+    /// friend the next, and no merchant-level rule can express both.
+    var categoryOverrideRaw: String?
 
     init(
         id: String,
@@ -29,7 +38,9 @@ final class TransactionRecord {
         categoryPrimary: String?,
         categoryDetailed: String?,
         logoURL: String?,
-        accountId: String?
+        accountId: String?,
+        transferPairId: String? = nil,
+        categoryOverrideRaw: String? = nil
     ) {
         self.id = id
         self.plaidTransactionId = plaidTransactionId
@@ -43,6 +54,14 @@ final class TransactionRecord {
         self.categoryDetailed = categoryDetailed
         self.logoURL = logoURL
         self.accountId = accountId
+        self.transferPairId = transferPairId
+        self.categoryOverrideRaw = categoryOverrideRaw
+    }
+
+    /// The per-transaction override, if one was set.
+    var categoryOverride: SpendCategory? {
+        get { categoryOverrideRaw.flatMap(SpendCategory.init(rawValue:)) }
+        set { categoryOverrideRaw = newValue?.rawValue }
     }
 
     var category: SpendCategory {
