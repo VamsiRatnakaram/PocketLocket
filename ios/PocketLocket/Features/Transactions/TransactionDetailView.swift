@@ -37,6 +37,7 @@ struct TransactionDetailView: View {
     @State private var didPersistBroadRule = false
     @State private var pendingRuleStateToRestore: CategoryAssignment.PreparedRuleState?
     @State private var showReimbursementAllocation = false
+    @State private var isTitleExpanded = false
     /// What the scope picker started on, so dismissing an untouched sheet
     /// writes nothing.
     private let initialScope: CategoryAssignment.Scope
@@ -150,9 +151,31 @@ struct TransactionDetailView: View {
                     .symbolEffect(.bounce, value: selected)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text(txn.title)
-                    .font(.headline)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(txn.title)
+                        .font(.headline)
+                        .lineLimit(isTitleExpanded ? nil : 2)
+                    Image(
+                        systemName: isTitleExpanded
+                            ? "chevron.up"
+                            : "chevron.down"
+                    )
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.snappy(duration: 0.18)) {
+                        isTitleExpanded.toggle()
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint(
+                    isTitleExpanded
+                        ? "Collapses the transaction name"
+                        : "Shows the full transaction name"
+                )
                 Text(txn.date, format: .dateTime.month().day().year())
                     .font(.caption)
                     .foregroundStyle(.secondary)
