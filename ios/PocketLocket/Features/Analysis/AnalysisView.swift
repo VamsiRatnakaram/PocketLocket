@@ -366,12 +366,9 @@ struct AnalysisView: View {
         let categoryAverages = snapshot.categoryAverages
         if !categoryAverages.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text(categorySpendingHeading)
-                    .font(.headline)
-
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Compare \(comparisonMonthLabel) against")
-                    .font(.subheadline.weight(.medium))
+                    .font(.headline)
                     Picker(
                     "Compare \(comparisonMonthLabel) spending against",
                     selection: $categoryComparisonMode
@@ -414,12 +411,6 @@ struct AnalysisView: View {
         comparisonMonthDate.formatted(.dateTime.month(.wide).year())
     }
 
-    private var categorySpendingHeading: String {
-        comparisonMonthIsCurrent
-            ? "\(comparisonMonthLabel) Spending to Date"
-            : "\(comparisonMonthLabel) Category Spending"
-    }
-
     private var comparisonMonthDate: Date {
         analysisWindow.end.addingTimeInterval(-1)
     }
@@ -454,21 +445,27 @@ struct AnalysisView: View {
         priorMonthCount: Int,
         previousMonthIsComplete: Bool
     ) -> String {
+        let currentMonthContext = comparisonMonthIsCurrent
+            ? "\(comparisonMonthLabel) spending is month to date. "
+            : ""
         switch categoryComparisonMode {
         case .monthlyAverage:
             guard priorMonthCount > 0 else {
-                return "No complete prior months are available in the selected range."
+                return currentMonthContext
+                    + "No complete prior months are available in the selected range."
             }
             let months = priorMonthCount == 1
                 ? "the 1 complete prior month"
                 : "all \(priorMonthCount) complete prior months"
-            return "Monthly average across \(months) in the selected range."
+            return currentMonthContext
+                + "Monthly average across \(months) in the selected range."
         case .previousMonth:
             guard previousMonthIsComplete else {
-                return "\(previousComparisonMonthLabel) is incomplete, "
+                return currentMonthContext + "\(previousComparisonMonthLabel) is incomplete, "
                     + "so no comparison is available."
             }
-            return "Direct comparison with \(previousComparisonMonthLabel)."
+            return currentMonthContext
+                + "Direct comparison with \(previousComparisonMonthLabel)."
         }
     }
 
