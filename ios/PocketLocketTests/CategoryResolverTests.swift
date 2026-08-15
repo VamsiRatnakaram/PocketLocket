@@ -86,6 +86,24 @@ final class CategoryResolverTests: XCTestCase {
         XCTAssertEqual(category, .groceries)
     }
 
+    func testMoreSpecificUserRuleWinsRegardlessOfInputOrder() {
+        let broad = CategoryRuleSpec(matchText: "uber", category: .transport)
+        let specific = CategoryRuleSpec(matchText: "uber trip", category: .travel)
+
+        XCTAssertEqual(
+            CategoryRuleIndex(specs: [broad, specific]).category(for: "UBER *TRIP"),
+            .travel
+        )
+        XCTAssertEqual(
+            CategoryRuleIndex(specs: [specific, broad]).category(for: "UBER *TRIP"),
+            .travel
+        )
+        XCTAssertEqual(
+            CategoryRuleIndex(specs: [specific, broad]).category(for: "UBER *EATS"),
+            .transport
+        )
+    }
+
     func testCanonicalRuleTextMatchesResolverNormalization() {
         XCTAssertEqual(
             CategoryRule.canonicalMatchText("Café's-Market"),
@@ -170,6 +188,307 @@ final class PerTransactionCategoryTests: XCTestCase {
         let rules = try context.fetch(FetchDescriptor<CategoryRule>())
         XCTAssertEqual(rules.count, 1)
         XCTAssertEqual(rules.first?.category, .food)
+    }
+
+    func testPreparedKeyFastPathUpdatesRuleImmediately() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "BLUE BOTTLE COFFEE")
+        context.insert(txn)
+
+        try CategoryAssignment.assign(
+            .food,
+            to: txn,
+            using: [],
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee"
+        )
+
+        let rules = try context.fetch(FetchDescriptor<CategoryRule>())
+        XCTAssertEqual(rules.count, 1)
+        XCTAssertEqual(txn.resolvedCategory(using: rules), .food)
+    }
+
+    func testPreparedKeyFastPathReusesRuleDuringRapidChanges() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "BLUE BOTTLE COFFEE")
+        context.insert(txn)
+
+        try CategoryAssignment.assign(
+            .food,
+            to: txn,
+            using: [],
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee"
+        )
+        // Deliberately pass the same stale query snapshot a second time. The
+        // context fetch must find the just-saved rule instead of inserting a
+        // duplicate while SwiftUI's @Query catches up.
+        try CategoryAssignment.assign(
+            .shopping,
+            to: txn,
+            using: [],
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee"
+        )
+
+        let rules = try context.fetch(FetchDescriptor<CategoryRule>())
+        XCTAssertEqual(rules.count, 1)
+        XCTAssertEqual(rules.first?.category, .shopping)
+    }
+
+    func testPreparedKeyFastPathSupportsTransactionOnlyScope() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "VENMO PAYMENT")
+        context.insert(txn)
+
+        try CategoryAssignment.assign(
+            .food,
+            to: txn,
+            using: [],
+            in: context,
+            scope: .thisTransactionOnly,
+            preparedMatchKey: nil
+        )
+
+        XCTAssertEqual(txn.categoryOverride, .food)
+        XCTAssertTrue(try context.fetch(FetchDescriptor<CategoryRule>()).isEmpty)
+    }
+
+    func testPreparedKeyFastPathRejectsMissingBroadKey() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "BLUE BOTTLE COFFEE")
+        context.insert(txn)
+
+        XCTAssertThrowsError(
+            try CategoryAssignment.assign(
+                .food,
+                to: txn,
+                using: [],
+                in: context,
+                scope: .allMatching,
+                preparedMatchKey: nil
+            )
+        )
+    }
+
+    func testBroadThenNarrowRestoresAbsentRule() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "BLUE BOTTLE COFFEE")
+        let sibling = makeTransaction("t2", name: "BLUE BOTTLE COFFEE")
+        context.insert(txn)
+        context.insert(sibling)
+        let original = try CategoryAssignment.preparedRuleState(
+            for: "blue bottle coffee",
+            using: [],
+            in: context
+        )
+
+        try CategoryAssignment.assign(
+            .health,
+            to: txn,
+            using: [],
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+        let broadRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        XCTAssertEqual(sibling.resolvedCategory(using: broadRules), .health)
+
+        try CategoryAssignment.assign(
+            .shopping,
+            to: txn,
+            using: broadRules,
+            in: context,
+            scope: .thisTransactionOnly,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+
+        let finalRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        XCTAssertTrue(finalRules.isEmpty)
+        XCTAssertEqual(txn.resolvedCategory(using: finalRules), .shopping)
+        XCTAssertEqual(sibling.resolvedCategory(using: finalRules), .food)
+    }
+
+    func testBroadThenNarrowRestoresExistingRule() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "BLUE BOTTLE COFFEE")
+        let sibling = makeTransaction("t2", name: "BLUE BOTTLE COFFEE")
+        let rule = CategoryRule(matchText: "blue bottle coffee", category: .groceries)
+        context.insert(txn)
+        context.insert(sibling)
+        context.insert(rule)
+        try context.save()
+        let original = try CategoryAssignment.preparedRuleState(
+            for: "blue bottle coffee",
+            using: [rule],
+            in: context
+        )
+
+        try CategoryAssignment.assign(
+            .health,
+            to: txn,
+            using: [rule],
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+        try CategoryAssignment.assign(
+            .shopping,
+            to: txn,
+            using: [rule],
+            in: context,
+            scope: .thisTransactionOnly,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+
+        let finalRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        XCTAssertEqual(finalRules.count, 1)
+        XCTAssertEqual(finalRules.first?.category, .groceries)
+        XCTAssertEqual(txn.resolvedCategory(using: finalRules), .shopping)
+        XCTAssertEqual(sibling.resolvedCategory(using: finalRules), .groceries)
+    }
+
+    func testScopeRoundTripLeavesOnlyFinalBroadChoice() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "BLUE BOTTLE COFFEE")
+        context.insert(txn)
+        let original = try CategoryAssignment.preparedRuleState(
+            for: "blue bottle coffee",
+            using: [],
+            in: context
+        )
+
+        try CategoryAssignment.assign(
+            .health,
+            to: txn,
+            using: [],
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+        var rules = try context.fetch(FetchDescriptor<CategoryRule>())
+        try CategoryAssignment.assign(
+            .shopping,
+            to: txn,
+            using: rules,
+            in: context,
+            scope: .thisTransactionOnly,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+        rules = try context.fetch(FetchDescriptor<CategoryRule>())
+        try CategoryAssignment.assign(
+            .services,
+            to: txn,
+            using: rules,
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+
+        let finalRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        XCTAssertNil(txn.categoryOverride)
+        XCTAssertEqual(finalRules.count, 1)
+        XCTAssertEqual(finalRules.first?.category, .services)
+    }
+
+    func testScopeRoundTripIgnoresDetachedRuleInStaleQuerySnapshot() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "BLUE BOTTLE COFFEE")
+        context.insert(txn)
+        let original = try CategoryAssignment.preparedRuleState(
+            for: "blue bottle coffee",
+            using: [],
+            in: context
+        )
+
+        try CategoryAssignment.assign(
+            .health,
+            to: txn,
+            using: [],
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+        let staleRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        try CategoryAssignment.assign(
+            .shopping,
+            to: txn,
+            using: staleRules,
+            in: context,
+            scope: .thisTransactionOnly,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+        XCTAssertNil(staleRules.first?.modelContext, "the query snapshot now holds a detached model")
+
+        try CategoryAssignment.assign(
+            .services,
+            to: txn,
+            using: staleRules,
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "blue bottle coffee",
+            originalRuleState: original
+        )
+
+        let finalRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        XCTAssertEqual(finalRules.count, 1)
+        XCTAssertEqual(finalRules.first?.category, .services)
+        XCTAssertNil(txn.categoryOverride)
+    }
+
+    func testPreparedKeyRekeyRestoresOldRuleAndAppliesNewRuleAtomically() throws {
+        let context = try makeContext()
+        let txn = makeTransaction("t1", name: "OLD MERCHANT")
+        context.insert(txn)
+        let oldOriginal = try CategoryAssignment.preparedRuleState(
+            for: "old merchant",
+            using: [],
+            in: context
+        )
+
+        try CategoryAssignment.assign(
+            .health,
+            to: txn,
+            using: [],
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "old merchant",
+            originalRuleState: oldOriginal
+        )
+        let currentRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        let newOriginal = try CategoryAssignment.preparedRuleState(
+            for: "new merchant",
+            using: currentRules,
+            in: context
+        )
+
+        try CategoryAssignment.assign(
+            .health,
+            to: txn,
+            using: currentRules,
+            in: context,
+            scope: .allMatching,
+            preparedMatchKey: "new merchant",
+            originalRuleState: newOriginal,
+            restoringRuleState: oldOriginal
+        )
+
+        let finalRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        XCTAssertEqual(finalRules.count, 1)
+        XCTAssertEqual(finalRules.first?.matchText, "new merchant")
+        XCTAssertEqual(finalRules.first?.category, .health)
     }
 
     func testOverrideOutranksAUserRule() throws {

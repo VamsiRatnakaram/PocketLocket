@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// A selectable category cell used in the categorize sheet. Springs up, tints,
-/// and bounces its symbol when selected for a tactile, award-worthy feel.
+/// A selectable category cell used in the categorize sheet.
 struct CategoryChip: View {
     let category: SpendCategory
     let isSelected: Bool
@@ -41,7 +40,6 @@ struct CategoryChip: View {
         VStack(spacing: 6) {
             Image(systemName: category.symbol)
                 .font(.title3)
-                .symbolEffect(.bounce, value: isSelected)
             Text(category.displayName)
                 .font(.caption)
                 .multilineTextAlignment(.center)

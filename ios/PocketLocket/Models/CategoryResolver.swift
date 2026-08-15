@@ -35,6 +35,11 @@ struct CategoryRuleIndex {
     init(specs: [CategoryRuleSpec]) {
         entries = specs.map {
             Entry(tokens: MerchantHeuristics.tokens(in: $0.matchText), category: $0.category)
+        }.sorted { left, right in
+            if left.tokens.count != right.tokens.count {
+                return left.tokens.count > right.tokens.count
+            }
+            return left.tokens.lexicographicallyPrecedes(right.tokens)
         }
     }
 
@@ -124,6 +129,20 @@ enum CategoryResolver {
 
 @MainActor
 enum CategoryAssignment {
+    struct PreparedRuleState: Equatable {
+        let matchText: String
+        /// Nil means no rule existed when Transaction Detail opened.
+        let categoryRaw: String?
+    }
+
+    enum AssignmentError: LocalizedError {
+        case missingPreparedMatchKey
+
+        var errorDescription: String? {
+            "The merchant rule is still loading. Please try again."
+        }
+    }
+
     /// How far a category choice should reach.
     enum Scope {
         /// Applies to this transaction alone, leaving every other transaction
@@ -177,6 +196,18 @@ enum CategoryAssignment {
         }
     }
 
+    static func preparedRuleState(
+        for matchText: String,
+        using rules: [CategoryRule],
+        in context: ModelContext
+    ) throws -> PreparedRuleState {
+        _ = rules
+        return PreparedRuleState(
+            matchText: matchText,
+            categoryRaw: try fetchRule(matchText: matchText, in: context)?.categoryRaw
+        )
+    }
+
     static func assign(
         _ category: SpendCategory,
         to transactions: [TransactionRecord],
@@ -211,6 +242,92 @@ enum CategoryAssignment {
             }
         }
         try context.save()
+    }
+
+    /// Fast path for Transaction Detail, which has already resolved the
+    /// merchant key while the sheet was opening.
+    ///
+    /// Recomputing `matchKey` after a tap walks the entire ledger and makes the
+    /// selection animation compete with category resolution. Applying the
+    /// prepared key updates SwiftData immediately, so the Transactions row is
+    /// already correct before the sheet begins to dismiss.
+    static func assign(
+        _ category: SpendCategory,
+        to transaction: TransactionRecord,
+        using rules: [CategoryRule],
+        in context: ModelContext,
+        scope: Scope,
+        preparedMatchKey: String?,
+        originalRuleState: PreparedRuleState? = nil,
+        restoringRuleState: PreparedRuleState? = nil
+    ) throws {
+        do {
+            if let restoringRuleState,
+               restoringRuleState.matchText != preparedMatchKey {
+                try restoreRule(restoringRuleState, using: rules, in: context)
+            }
+
+            guard scope == .allMatching else {
+                transaction.categoryOverride = category
+                if let originalRuleState {
+                    try restoreRule(originalRuleState, using: rules, in: context)
+                }
+                try context.save()
+                return
+            }
+
+            guard let preparedMatchKey, !preparedMatchKey.isEmpty else {
+                throw AssignmentError.missingPreparedMatchKey
+            }
+
+            transaction.categoryOverride = nil
+            if let existing = try fetchRule(matchText: preparedMatchKey, in: context) {
+                existing.categoryRaw = category.rawValue
+            } else {
+                context.insert(CategoryRule(matchText: preparedMatchKey, category: category))
+            }
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    private static func restoreRule(
+        _ original: PreparedRuleState,
+        using rules: [CategoryRule],
+        in context: ModelContext
+    ) throws {
+        _ = rules
+        let key = original.matchText
+        let existing = try fetchRule(matchText: key, in: context)
+
+        if let categoryRaw = original.categoryRaw {
+            if let existing {
+                existing.categoryRaw = categoryRaw
+            } else {
+                let restored = CategoryRule(
+                    matchText: key,
+                    category: SpendCategory(rawValue: categoryRaw) ?? .other
+                )
+                restored.categoryRaw = categoryRaw
+                context.insert(restored)
+            }
+        } else if let existing {
+            context.delete(existing)
+        }
+    }
+
+    private static func fetchRule(
+        matchText: String,
+        in context: ModelContext
+    ) throws -> CategoryRule? {
+        let key = matchText
+        var descriptor = FetchDescriptor<CategoryRule>(
+            predicate: #Predicate { $0.matchText == key }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
     }
 }
 

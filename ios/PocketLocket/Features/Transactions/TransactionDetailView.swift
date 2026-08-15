@@ -1,6 +1,35 @@
 import SwiftUI
 import SwiftData
 
+private struct TransactionDetailScrollOffsetKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct TransactionAssignmentPreparationKey: Equatable {
+    let dataHash: Int
+    let rulesHash: Int
+    let descriptor: String
+}
+
+enum TransactionSheetDismissalPolicy {
+    static let topTolerance: CGFloat = 2
+    static let requiredPullPastTop: CGFloat = 120
+
+    static func shouldDismiss(
+        startingScrollDepth: CGFloat,
+        currentScrollDepth: CGFloat,
+        translation: CGFloat
+    ) -> Bool {
+        guard currentScrollDepth <= topTolerance else { return false }
+        let pullPastTop = translation - max(0, startingScrollDepth)
+        return pullPastTop >= requiredPullPastTop
+    }
+}
+
 /// Tap a transaction to recategorize it. Choosing a category teaches the app a
 /// rule so it auto-categorizes that merchant this way from now on.
 struct TransactionDetailView: View {
@@ -21,6 +50,16 @@ struct TransactionDetailView: View {
     @State private var resolvedMatchKey: String?
     @State private var groupingStats: MerchantAnalytics.MerchantStats?
     @State private var dismissAfterGroupingEdit = false
+    @State private var persistedCategory: SpendCategory
+    @State private var persistedScope: CategoryAssignment.Scope
+    @State private var assignmentErrorMessage: String?
+    @State private var originalRuleState: CategoryAssignment.PreparedRuleState?
+    @State private var preparedInputKey: TransactionAssignmentPreparationKey?
+    @State private var didPersistBroadRule = false
+    @State private var pendingRuleStateToRestore: CategoryAssignment.PreparedRuleState?
+    @State private var scrollDepth: CGFloat = 0
+    @State private var dragStartScrollDepth: CGFloat?
+    @State private var triggeredDragDismissal = false
     /// What the scope picker started on, so dismissing an untouched sheet
     /// writes nothing.
     private let initialScope: CategoryAssignment.Scope
@@ -47,6 +86,8 @@ struct TransactionDetailView: View {
         }
         self.initialScope = defaultScope
         _scope = State(initialValue: defaultScope)
+        _persistedCategory = State(initialValue: currentCategory)
+        _persistedScope = State(initialValue: defaultScope)
     }
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 12)]
@@ -60,21 +101,50 @@ struct TransactionDetailView: View {
                     categoryGrid
                 }
                 .padding()
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: TransactionDetailScrollOffsetKey.self,
+                            value: proxy.frame(in: .named("transaction-detail-scroll")).minY
+                        )
+                    }
+                }
             }
+            .coordinateSpace(name: "transaction-detail-scroll")
+            .onPreferenceChange(TransactionDetailScrollOffsetKey.self) {
+                scrollDepth = max(0, -$0)
+            }
+            .simultaneousGesture(continuousDismissGesture)
             .navigationTitle("Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .sensoryFeedback(.selection, trigger: feedback)
-            .task {
-                resolvedMatchKey = CategoryAssignment.matchKey(for: txn, in: allTransactions)
+            .task(id: assignmentPreparationKey) {
+                prepareAssignment(for: assignmentPreparationKey)
+            }
+            .alert(
+                "Couldn’t Update Category",
+                isPresented: Binding(
+                    get: { assignmentErrorMessage != nil },
+                    set: { if !$0 { assignmentErrorMessage = nil } }
+                )
+            ) {
+                Button("Try Again") {
+                    assignmentErrorMessage = nil
+                    retryCategoryUpdate()
+                }
+                Button("Cancel", role: .cancel) { assignmentErrorMessage = nil }
+            } message: {
+                Text(assignmentErrorMessage ?? "Please try again.")
             }
         }
         .presentationDetents([.large])
+        .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
         .platformPresentationCornerRadius(30)
-        .onDisappear { persistSelection() }
+        .onDisappear { persistBeforeDismissal() }
         .sheet(item: $groupingStats, onDismiss: {
             if dismissAfterGroupingEdit {
                 onGroupingSaved()
@@ -105,6 +175,7 @@ struct TransactionDetailView: View {
                 .monospacedDigit()
                 .foregroundStyle(txn.amount > 0 ? Color.primary : Color.green)
         }
+        .animation(.snappy(duration: 0.16), value: selected)
     }
 
     /// Explains *why* this was treated as a transfer. A matched pair is a claim
@@ -116,9 +187,13 @@ struct TransactionDetailView: View {
     /// contradicted the category shown right above it once a rule or a
     /// per-transaction override put the money back into spending.
     private var transferBudgetNote: String {
-        currentCategory == .transfer
-            ? "Kept out of your budget so it doesn't double up with the purchases it covers."
-            : "You've categorized it as \(currentCategory.displayName), so it still counts toward your budget."
+        if selected == .transfer {
+            return "Kept out of your budget so it doesn't double up with the purchases it covers."
+        }
+        if selected.isSpending {
+            return "You've categorized it as \(selected.displayName), so it still counts toward your budget."
+        }
+        return "You've categorized it as \(selected.displayName), so it stays out of your budget."
     }
 
     @ViewBuilder
@@ -197,6 +272,7 @@ struct TransactionDetailView: View {
                 Text("All like this").tag(CategoryAssignment.Scope.allMatching)
             }
             .pickerStyle(.segmented)
+            .onChange(of: scope) { _, _ in persistSelection() }
 
             Text(scopeExplanation)
                 .font(.caption)
@@ -231,14 +307,52 @@ struct TransactionDetailView: View {
         resolvedMatchKey ?? CategoryAssignment.matchKey(for: txn)
     }
 
+    private var assignmentPreparationKey: TransactionAssignmentPreparationKey {
+        TransactionAssignmentPreparationKey(
+            dataHash: RecordHash.transactions(allTransactions),
+            rulesHash: RecordHash.rules(rules),
+            descriptor: "\(txn.merchantName ?? "")\u{1F}\(txn.name)"
+        )
+    }
+
     private var amountText: String {
         let magnitude = CurrencyFormatter.string(abs(txn.amount), code: txn.isoCurrencyCode)
         return txn.amount > 0 ? "-\(magnitude)" : "+\(magnitude)"
     }
 
     private func choose(_ category: SpendCategory) {
-        withAnimation(.snappy) { selected = category }
+        guard selected != category else { return }
+        selected = category
         feedback += 1
+        persistSelection()
+    }
+
+    /// SwiftUI doesn't transfer a drag to the sheet after that same drag reaches
+    /// the top. Dismiss only after the content is actually at the top and the
+    /// user has deliberately pulled another 120 points.
+    private var continuousDismissGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                if dragStartScrollDepth == nil {
+                    dragStartScrollDepth = scrollDepth
+                    triggeredDragDismissal = false
+                }
+                guard !triggeredDragDismissal, value.translation.height > 0 else { return }
+
+                let startDepth = dragStartScrollDepth ?? scrollDepth
+                guard TransactionSheetDismissalPolicy.shouldDismiss(
+                    startingScrollDepth: startDepth,
+                    currentScrollDepth: scrollDepth,
+                    translation: value.translation.height
+                ) else { return }
+
+                triggeredDragDismissal = true
+                dismiss()
+            }
+            .onEnded { _ in
+                dragStartScrollDepth = nil
+                triggeredDragDismissal = false
+            }
     }
 
     /// Calculated only when requested. Building every merchant group requires a
@@ -274,16 +388,89 @@ struct TransactionDetailView: View {
         }
     }
 
-    private func persistSelection() {
-        // Only write when the user actually interacted. Opening a sheet and
-        // dismissing it must not pin a category — with the narrow scope that
-        // would freeze an auto-categorized transaction against future rule
-        // changes.
-        let changedCategory = selected != currentCategory
-        let changedScope = scope != initialScope
-        guard changedCategory || changedScope else { return }
-        try? CategoryAssignment.assign(
-            selected, to: [txn], using: rules, in: context, scope: scope, ledger: allTransactions
-        )
+    private func prepareAssignment(for inputKey: TransactionAssignmentPreparationKey) {
+        guard inputKey == assignmentPreparationKey else { return }
+        let matchKey = CategoryAssignment.matchKey(for: txn, in: allTransactions)
+        do {
+            let original: CategoryAssignment.PreparedRuleState
+            if resolvedMatchKey == matchKey, let originalRuleState {
+                original = originalRuleState
+            } else {
+                original = try CategoryAssignment.preparedRuleState(
+                    for: matchKey,
+                    using: rules,
+                    in: context
+                )
+            }
+
+            if resolvedMatchKey != matchKey,
+               didPersistBroadRule,
+               pendingRuleStateToRestore == nil {
+                pendingRuleStateToRestore = originalRuleState
+            }
+
+            originalRuleState = original
+            resolvedMatchKey = matchKey
+            preparedInputKey = inputKey
+            persistSelection(force: pendingRuleStateToRestore != nil)
+        } catch {
+            assignmentErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func persistBeforeDismissal() {
+        let currentInputKey = assignmentPreparationKey
+        if preparedInputKey != currentInputKey {
+            prepareAssignment(for: currentInputKey)
+        } else {
+            persistSelection()
+        }
+    }
+
+    private func retryCategoryUpdate() {
+        let currentInputKey = assignmentPreparationKey
+        if preparedInputKey != currentInputKey {
+            prepareAssignment(for: currentInputKey)
+        } else {
+            persistSelection(force: pendingRuleStateToRestore != nil)
+        }
+    }
+
+    private func persistSelection(force: Bool = false) {
+        // Only write when the user actually interacted. The normal path runs
+        // on the tap; onDisappear is only a safety net for a change made while
+        // the merchant key was still preparing.
+        let changedCategory = selected != persistedCategory
+        let changedScope = scope != persistedScope
+        guard force
+                || pendingRuleStateToRestore != nil
+                || changedCategory
+                || changedScope
+        else { return }
+        if scope == .allMatching
+            && (
+                resolvedMatchKey == nil
+                    || originalRuleState == nil
+                    || preparedInputKey != assignmentPreparationKey
+            ) { return }
+
+        do {
+            try CategoryAssignment.assign(
+                selected,
+                to: txn,
+                using: rules,
+                in: context,
+                scope: scope,
+                preparedMatchKey: resolvedMatchKey,
+                originalRuleState: originalRuleState,
+                restoringRuleState: pendingRuleStateToRestore
+            )
+            persistedCategory = selected
+            persistedScope = scope
+            didPersistBroadRule = scope == .allMatching
+            pendingRuleStateToRestore = nil
+        } catch {
+            assignmentErrorMessage = error.localizedDescription
+        }
     }
 }
