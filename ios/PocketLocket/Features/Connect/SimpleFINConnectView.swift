@@ -60,7 +60,7 @@ struct SimpleFINConnectView: View {
             }
         }
         .presentationDragIndicator(.visible)
-        .presentationCornerRadius(30)
+        .platformPresentationCornerRadius(30)
     }
 
     private func connect() async {

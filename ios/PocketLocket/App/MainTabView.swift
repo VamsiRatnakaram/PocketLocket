@@ -25,6 +25,7 @@ struct MainTabView: View {
                 .tag(Tab.analysis)
                 .tabItem { Label("Analysis", systemImage: "chart.line.uptrend.xyaxis") }
         }
+        .liquidGlassTabBarMinimizeOnScroll()
         .task {
             // Backfill first so existing history (and CSV imports, which never
             // touch the sync path) gets paired even when there's no SimpleFIN

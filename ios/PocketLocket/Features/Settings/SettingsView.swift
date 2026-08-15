@@ -172,7 +172,7 @@ struct SettingsView: View {
             }
         }
         .presentationDragIndicator(.visible)
-        .presentationCornerRadius(30)
+        .platformPresentationCornerRadius(30)
     }
 
     /// Shows the oldest synced transaction date so you can tell whether

@@ -73,7 +73,7 @@ struct TransactionDetailView: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationCornerRadius(30)
+        .platformPresentationCornerRadius(30)
         .onDisappear { persistSelection() }
         .sheet(item: $groupingStats, onDismiss: {
             if dismissAfterGroupingEdit {
@@ -164,9 +164,10 @@ struct TransactionDetailView: View {
                     Button { choose(category) } label: {
                         CategoryChip(category: category, isSelected: category == selected)
                     }
-                    .buttonStyle(PressableStyle())
+                    .liquidGlassPressableButtonStyle()
                 }
             }
+            .liquidGlassContainer(spacing: 8)
             scopePicker
             Button { editGrouping() } label: {
                 Label("Edit Merchant Grouping", systemImage: "rectangle.3.group")

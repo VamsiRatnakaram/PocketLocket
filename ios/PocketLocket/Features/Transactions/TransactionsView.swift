@@ -190,10 +190,10 @@ struct TransactionsView: View {
             .navigationTitle("Transactions")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search merchants")
-            .safeAreaInset(edge: .top) {
+            .adaptiveSafeAreaBar(edge: .top) {
                 if !isSelecting { typeBar }
             }
-            .safeAreaInset(edge: .bottom) {
+            .adaptiveSafeAreaBar(edge: .bottom) {
                 if isSelecting { selectionBar }
             }
             .toolbar {
@@ -273,12 +273,12 @@ struct TransactionsView: View {
             } label: {
                 Label("Assign Category", systemImage: "tag.fill")
             }
-            .buttonStyle(.borderedProminent)
+            .adaptiveProminentButtonStyle()
             .disabled(selectedTransactionIDs.isEmpty)
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
-        .background(.bar)
+        .legacyBarBackground()
     }
 
     private var typeBar: some View {
@@ -288,7 +288,7 @@ struct TransactionsView: View {
         .pickerStyle(.segmented)
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .background(.bar)
+        .legacyBarBackground()
     }
 
     private var assignmentErrorBinding: Binding<Bool> {

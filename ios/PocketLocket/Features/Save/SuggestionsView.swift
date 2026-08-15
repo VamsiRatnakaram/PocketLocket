@@ -90,17 +90,18 @@ struct SuggestionsView: View {
                     coordinator.suspend()
                 }
             }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .adaptiveSafeAreaBar(edge: .bottom, spacing: 0) {
             if questionFocused {
                 HStack {
                     Spacer()
                     Button("Done") { questionFocused = false }
                         .fontWeight(.semibold)
+                        .liquidGlassButtonStyle()
                 }
                 .frame(height: 44)
                 .padding(.horizontal)
-                .background(.bar)
-                .overlay(alignment: .top) { Divider() }
+                .legacyBarBackground()
+                .legacyTopDivider()
             }
         }
     }
@@ -133,12 +134,10 @@ struct SuggestionsView: View {
                     .submitLabel(.send)
                     .onSubmit { submitQuestion() }
 
-                Button { submitQuestion() } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                }
-                .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || ai.state == .loading)
-                .accessibilityLabel("Ask question")
+                Button { submitQuestion() } label: { askButtonLabel }
+                    .liquidGlassButtonStyle(.prominent)
+                    .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || ai.state == .loading)
+                    .accessibilityLabel("Ask question")
             }
 
             if let submittedQuestion {
@@ -172,6 +171,17 @@ struct SuggestionsView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var askButtonLabel: some View {
+        if #available(iOS 26.0, *) {
+            Image(systemName: "arrow.up")
+                .font(.body.weight(.bold))
+        } else {
+            Image(systemName: "arrow.up.circle.fill")
+                .font(.title2)
+        }
     }
 
     private func markdown(_ string: String) -> AttributedString {
