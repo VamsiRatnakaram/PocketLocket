@@ -4,10 +4,12 @@ import SwiftUI
 struct AccountDetailView: View {
     let account: AccountRecord
 
+    @Environment(\.modelContext) private var context
     @Query(sort: \TransactionRecord.date, order: .reverse)
     private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
     @State private var detail: TransactionRecord?
+    @State private var errorMessage: String?
 
     init(account: AccountRecord) {
         self.account = account
@@ -48,7 +50,14 @@ struct AccountDetailView: View {
             }
 
             Section("Account") {
-                LabeledContent("Type", value: accountType)
+                Picker("Type", selection: accountTypeBinding) {
+                    Text("Automatic (\(inferredAccountType))")
+                        .tag(AccountTypeChoice?.none)
+                    ForEach(AccountTypeChoice.allCases) { type in
+                        Text(type.displayName)
+                            .tag(AccountTypeChoice?.some(type))
+                    }
+                }
                 if let mask = account.mask, !mask.isEmpty {
                     LabeledContent("Number", value: "••••\(mask)")
                 }
@@ -89,12 +98,40 @@ struct AccountDetailView: View {
                 currentCategory: transaction.resolvedCategory(using: rules)
             )
         }
+        .alert(
+            "Couldn’t Update Account Type",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "Please try again.")
+        }
     }
 
-    private var accountType: String {
+    private var inferredAccountType: String {
         (account.subtype ?? account.type ?? "Account")
             .replacingOccurrences(of: "_", with: " ")
             .capitalized
+    }
+
+    private var accountTypeBinding: Binding<AccountTypeChoice?> {
+        Binding(
+            get: {
+                account.typeOverrideRaw.flatMap(AccountTypeChoice.init(rawValue:))
+            },
+            set: { type in
+                account.typeOverrideRaw = type?.rawValue
+                do {
+                    try context.save()
+                } catch {
+                    context.rollback()
+                    errorMessage = error.localizedDescription
+                }
+            }
+        )
     }
 
     private func balance(_ amount: Double) -> some View {

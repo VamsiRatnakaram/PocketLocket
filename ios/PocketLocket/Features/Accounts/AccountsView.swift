@@ -17,17 +17,20 @@ struct AccountsView: View {
     }
     private var balanceSummary: AccountBalanceSummary.Totals {
         AccountBalanceSummary.totals(for: accounts.map {
-            AccountBalanceSummary.Account(type: $0.type, balance: $0.currentBalance)
+            AccountBalanceSummary.Account(
+                type: $0.resolvedType,
+                balance: $0.currentBalance
+            )
         })
     }
     private var assets: Double { balanceSummary.assets }
     private var liabilities: Double { balanceSummary.liabilities }
     private var netWorth: Double { balanceSummary.netWorth }
     private var investmentAccounts: [AccountRecord] {
-        accounts.filter { $0.type == "investment" }
+        accounts.filter { $0.resolvedType == "investment" }
     }
     private var bankingAccounts: [AccountRecord] {
-        accounts.filter { $0.type != "investment" }
+        accounts.filter { $0.resolvedType != "investment" }
     }
 
     private var importAlertBinding: Binding<Bool> {

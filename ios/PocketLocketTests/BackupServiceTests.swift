@@ -55,7 +55,11 @@ final class BackupServiceTests: XCTestCase {
                 )
             ).first
         )
+        let sourceAccount = try XCTUnwrap(
+            source.fetch(FetchDescriptor<AccountRecord>()).first
+        )
         sourceTransaction.categoryOverride = .food
+        sourceAccount.typeOverrideRaw = AccountTypeChoice.investment.rawValue
         try source.save()
 
         let file = try BackupService.exportEncrypted(password: "hunter2", context: source)
@@ -69,6 +73,11 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(inserted, 2)
         XCTAssertEqual(try dest.fetch(FetchDescriptor<TransactionRecord>()).count, 2)
         XCTAssertEqual(try dest.fetch(FetchDescriptor<AccountRecord>()).count, 1)
+        let restoredAccount = try XCTUnwrap(
+            dest.fetch(FetchDescriptor<AccountRecord>()).first
+        )
+        XCTAssertEqual(restoredAccount.typeOverrideRaw, "investment")
+        XCTAssertEqual(restoredAccount.resolvedType, "investment")
         XCTAssertEqual(try dest.fetch(FetchDescriptor<CategoryRule>()).count, 1)
         let groupingRule = try XCTUnwrap(
             dest.fetch(FetchDescriptor<MerchantGroupingRule>()).first

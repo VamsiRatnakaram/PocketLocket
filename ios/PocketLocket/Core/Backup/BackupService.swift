@@ -31,13 +31,15 @@ enum BackupService {
         var officialName: String?
         var mask: String?
         var type: String?
+        var typeOverrideRaw: String?
         var subtype: String?
         var currentBalance: Double
         var availableBalance: Double?
         var isoCurrencyCode: String
         init(_ a: AccountRecord) {
             id = a.id; plaidAccountId = a.plaidAccountId; name = a.name
-            officialName = a.officialName; mask = a.mask; type = a.type; subtype = a.subtype
+            officialName = a.officialName; mask = a.mask; type = a.type
+            typeOverrideRaw = a.typeOverrideRaw; subtype = a.subtype
             currentBalance = a.currentBalance; availableBalance = a.availableBalance
             isoCurrencyCode = a.isoCurrencyCode
         }
@@ -219,7 +221,8 @@ enum BackupService {
             guard !exists else { continue }
             context.insert(AccountRecord(
                 id: a.id, plaidAccountId: a.plaidAccountId, name: a.name,
-                officialName: a.officialName, mask: a.mask, type: a.type, subtype: a.subtype,
+                officialName: a.officialName, mask: a.mask, type: a.type,
+                typeOverrideRaw: a.typeOverrideRaw, subtype: a.subtype,
                 currentBalance: a.currentBalance, availableBalance: a.availableBalance,
                 isoCurrencyCode: a.isoCurrencyCode
             ))

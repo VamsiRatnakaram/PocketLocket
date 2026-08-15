@@ -24,13 +24,17 @@ enum TransferMatchService {
 
         let transferAccountIds = Set(
             accounts
-                .filter { TransferMatcher.isTransferAccountType($0.type) }
+                .filter {
+                    TransferMatcher.isTransferAccountType($0.resolvedType)
+                }
                 .map(\.id)
         )
         let bidirectionalTransferAccountIds = Set(
             accounts
                 .filter {
-                    TransferMatcher.isBidirectionalTransferAccountType($0.type)
+                    TransferMatcher.isBidirectionalTransferAccountType(
+                        $0.resolvedType
+                    )
                 }
                 .map(\.id)
         )

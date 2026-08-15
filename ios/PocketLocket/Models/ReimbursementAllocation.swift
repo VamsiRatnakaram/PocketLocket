@@ -154,12 +154,16 @@ enum ReimbursementCandidateBuilder {
         for source: TransactionRecord,
         in transactions: [TransactionRecord],
         index: ReimbursementAllocationIndex,
+        excludedAccountIDs: Set<String> = [],
         categoryFor: (TransactionRecord) -> SpendCategory
     ) -> [TransactionRecord] {
-        guard source.amount < 0 else { return [] }
+        guard source.amount < 0,
+              !(source.accountId.map { excludedAccountIDs.contains($0) } ?? false)
+        else { return [] }
         return transactions.filter { transaction in
             transaction.id != source.id
                 && transaction.amount > 0
+                && !(transaction.accountId.map { excludedAccountIDs.contains($0) } ?? false)
                 && transaction.isoCurrencyCode.caseInsensitiveCompare(source.isoCurrencyCode) == .orderedSame
                 && categoryFor(transaction).isSpending
                 && index.remainingExpenseAmount(
@@ -175,12 +179,16 @@ enum ReimbursementSourceCandidateBuilder {
     static func candidates(
         for expense: TransactionRecord,
         in transactions: [TransactionRecord],
-        index: ReimbursementAllocationIndex
+        index: ReimbursementAllocationIndex,
+        excludedAccountIDs: Set<String> = []
     ) -> [TransactionRecord] {
-        guard expense.amount > 0 else { return [] }
+        guard expense.amount > 0,
+              !(expense.accountId.map { excludedAccountIDs.contains($0) } ?? false)
+        else { return [] }
         return transactions.filter { transaction in
             transaction.id != expense.id
                 && transaction.amount < 0
+                && !(transaction.accountId.map { excludedAccountIDs.contains($0) } ?? false)
                 && transaction.transferPairId == nil
                 && transaction.isoCurrencyCode.caseInsensitiveCompare(expense.isoCurrencyCode) == .orderedSame
                 && index.remainingSourceAmount(

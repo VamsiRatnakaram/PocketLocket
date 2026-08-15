@@ -42,13 +42,19 @@ struct AccountCard: View {
     }
 
     private var subtitle: String {
-        let type = (account.subtype ?? account.type ?? "account").capitalized
+        let type = (
+            account.typeOverrideRaw == nil
+                ? (account.subtype ?? account.resolvedType ?? "account")
+                : (AccountTypeChoice(rawValue: account.resolvedType ?? "")?.displayName
+                    ?? account.resolvedType
+                    ?? "account")
+        ).capitalized
         if let mask = account.mask { return "\(type) ••\(mask)" }
         return type
     }
 
     private var iconName: String {
-        switch account.type {
+        switch account.resolvedType {
         case "credit": return "creditcard.fill"
         case "loan": return "banknote.fill"
         case "investment": return "chart.line.uptrend.xyaxis"
