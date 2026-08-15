@@ -85,6 +85,11 @@ struct TransactionsView: View {
         return "\(name) ••••\(mask)"
     }
 
+    private func isAccountExcluded(_ txn: TransactionRecord) -> Bool {
+        guard let accountID = txn.accountId else { return false }
+        return excludedAccountIds.contains(accountID)
+    }
+
     private func delete(_ txn: TransactionRecord) {
         ReimbursementAllocationService.deleteAllocations(
             referencing: [txn.id],
@@ -189,7 +194,8 @@ struct TransactionsView: View {
                                     category: row.category,
                                     reimbursedAmount: row.reimbursedAmount,
                                     reimbursementSourceAmount: row.reimbursementSourceAmount,
-                                    accountLabel: accountLabel(for: txn)
+                                    accountLabel: accountLabel(for: txn),
+                                    isAccountExcluded: isAccountExcluded(txn)
                                 )
                             }
                             .contentShape(Rectangle())
@@ -203,7 +209,8 @@ struct TransactionsView: View {
                                 category: row.category,
                                 reimbursedAmount: row.reimbursedAmount,
                                 reimbursementSourceAmount: row.reimbursementSourceAmount,
-                                accountLabel: accountLabel(for: txn)
+                                accountLabel: accountLabel(for: txn),
+                                isAccountExcluded: isAccountExcluded(txn)
                             )
                         }
                         .buttonStyle(PressableStyle(scale: 0.98))
