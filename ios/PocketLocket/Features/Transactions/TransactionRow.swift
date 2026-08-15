@@ -6,19 +6,22 @@ struct TransactionRow: View {
     let reimbursedAmount: Double
     let reimbursementSourceAmount: Double
     let accountLabel: String?
+    let isAccountExcluded: Bool
 
     init(
         txn: TransactionRecord,
         category: SpendCategory,
         reimbursedAmount: Double = 0,
         reimbursementSourceAmount: Double = 0,
-        accountLabel: String? = nil
+        accountLabel: String? = nil,
+        isAccountExcluded: Bool = false
     ) {
         self.txn = txn
         self.category = category
         self.reimbursedAmount = reimbursedAmount
         self.reimbursementSourceAmount = reimbursementSourceAmount
         self.accountLabel = accountLabel
+        self.isAccountExcluded = isAccountExcluded
     }
 
     var body: some View {
@@ -59,7 +62,8 @@ struct TransactionRow: View {
                     // The spend ring silently drops non-spending categories.
                     // Without a marker there's no way to tell an excluded
                     // transaction from one the app simply never imported.
-                    if !category.isSpending && txn.amount > 0 {
+                    if txn.amount > 0
+                        && (isAccountExcluded || !category.isSpending) {
                         Text("• Not in budget")
                     }
                 }
