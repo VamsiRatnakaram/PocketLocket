@@ -13,6 +13,7 @@ struct YearOverviewView: View {
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var yearOffset = 0
+    @State private var summaryCache = DerivedCache<YearKey, YearSummary>()
 
     private var year: Int {
         Calendar.current.component(.year, from: Date()) + yearOffset
@@ -25,40 +26,66 @@ struct YearOverviewView: View {
         return Calendar.current.component(.year, from: earliest)
     }
 
-    private var yearTransactions: [TransactionRecord] {
+    /// Everything the year view shows, derived in a single pass.
+    private struct YearSummary {
+        let spends: [CategorySpend]
+        let total: Double
+        let monthlyTotals: [MonthBar]
+    }
+
+    private struct YearKey: Equatable {
+        var dataHash: Int
+        var rulesHash: Int
+        var year: Int
+        var excludedAccountsRaw: String
+    }
+
+    /// `total` alone was read three times, and each read rebuilt `spends`,
+    /// which rebuilt `yearTransactions` — so a render filtered a year out of
+    /// the whole ledger about six times over. Categories were resolved twice
+    /// per transaction on top of that, once for the breakdown and again for
+    /// the monthly bars.
+    private var summary: YearSummary {
+        // Narrow to the year before hashing, so the cache key costs a scan of
+        // scalars rather than a hash of the whole ledger.
         let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
-        return transactions.filter {
-            Calendar.current.component(.year, from: $0.date) == year
+        let calendar = Calendar.current
+        let yearTransactions = transactions.filter {
+            calendar.component(.year, from: $0.date) == year
                 && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
         }
-    }
-
-    private var spends: [CategorySpend] {
-        SpendAggregator.totals(
-            yearTransactions.map { SpendItem(category: $0.resolvedCategory(using: rules), amount: $0.amount) }
+        let key = YearKey(
+            dataHash: RecordHash.transactions(yearTransactions),
+            rulesHash: RecordHash.rules(rules),
+            year: year,
+            excludedAccountsRaw: excludedAccountsRaw
         )
-    }
+        return summaryCache.value(for: key) {
+            var items: [SpendItem] = []
+            var buckets = Array(repeating: 0.0, count: 12)
 
-    private var total: Double { SpendAggregator.totalSpend(spends) }
+            for txn in yearTransactions {
+                let category = txn.resolvedCategory(using: rules)
+                items.append(SpendItem(category: category, amount: txn.amount))
+                guard category.isSpending, txn.amount > 0 else { continue }
+                let index = calendar.component(.month, from: txn.date) - 1
+                if index >= 0, index < 12 { buckets[index] += txn.amount }
+            }
+
+            let spends = SpendAggregator.totals(items)
+            return YearSummary(
+                spends: spends,
+                total: SpendAggregator.totalSpend(spends),
+                monthlyTotals: buckets.enumerated().map { MonthBar(month: $0.offset, amount: $0.element) }
+            )
+        }
+    }
 
     private var yearInterval: DateInterval {
         let calendar = Calendar.current
         let start = calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? Date()
         let end = calendar.date(from: DateComponents(year: year + 1, month: 1, day: 1)) ?? start
         return DateInterval(start: start, end: end)
-    }
-
-    /// Spend per month (0 = Jan … 11 = Dec).
-    private var monthlyTotals: [MonthBar] {
-        var buckets = Array(repeating: 0.0, count: 12)
-        let calendar = Calendar.current
-        for txn in yearTransactions {
-            let category = txn.resolvedCategory(using: rules)
-            guard category.isSpending, txn.amount > 0 else { continue }
-            let index = calendar.component(.month, from: txn.date) - 1
-            if index >= 0, index < 12 { buckets[index] += txn.amount }
-        }
-        return buckets.enumerated().map { MonthBar(month: $0.offset, amount: $0.element) }
     }
 
     struct MonthBar: Identifiable {
@@ -69,12 +96,16 @@ struct YearOverviewView: View {
     }
 
     var body: some View {
+        content(summary)
+    }
+
+    private func content(_ summary: YearSummary) -> some View {
         ScrollView {
             VStack(spacing: 24) {
                 yearSwitcher
 
                 VStack(spacing: 4) {
-                    Text(CurrencyFormatter.string(total))
+                    Text(CurrencyFormatter.string(summary.total))
                         .font(.system(.largeTitle, design: .rounded).weight(.bold))
                         .monospacedDigit()
                         .contentTransition(.numericText())
@@ -83,7 +114,7 @@ struct YearOverviewView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if total == 0 {
+                if summary.total == 0 {
                     ContentUnavailableView {
                         Label("No spending in \(String(year))", systemImage: "calendar")
                     } description: {
@@ -91,8 +122,8 @@ struct YearOverviewView: View {
                     }
                     .padding(.top, 12)
                 } else {
-                    chart
-                    CategoryBreakdownList(spends: spends, total: total, interval: yearInterval, periodLabel: String(year))
+                    chart(summary.monthlyTotals)
+                    CategoryBreakdownList(spends: summary.spends, total: summary.total, interval: yearInterval, periodLabel: String(year))
                         .padding(.horizontal)
                 }
             }
@@ -100,7 +131,7 @@ struct YearOverviewView: View {
         }
     }
 
-    private var chart: some View {
+    private func chart(_ monthlyTotals: [MonthBar]) -> some View {
         Chart(monthlyTotals) { bar in
             BarMark(
                 x: .value("Month", bar.label),

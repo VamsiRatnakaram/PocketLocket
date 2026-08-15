@@ -16,5 +16,9 @@ final class CategoryRule {
         self.createdAt = createdAt
     }
 
+    static func canonicalMatchText(_ value: String) -> String {
+        MerchantHeuristics.tokens(in: value).joined(separator: " ")
+    }
+
     var category: SpendCategory { SpendCategory(rawValue: categoryRaw) ?? .other }
 }

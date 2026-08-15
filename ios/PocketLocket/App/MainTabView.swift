@@ -5,7 +5,7 @@ struct MainTabView: View {
     @State private var selection: Tab = MainTabView.initialTab()
     @Environment(\.modelContext) private var context
 
-    enum Tab: Hashable { case home, transactions, accounts, save }
+    enum Tab: Hashable { case home, transactions, accounts, analysis }
 
     var body: some View {
         TabView(selection: $selection) {
@@ -21,24 +21,28 @@ struct MainTabView: View {
                 .tag(Tab.accounts)
                 .tabItem { Label("Accounts", systemImage: "building.columns.fill") }
 
-            SuggestionsView()
-                .tag(Tab.save)
-                .tabItem { Label("Save", systemImage: "sparkles") }
+            AnalysisRootView()
+                .tag(Tab.analysis)
+                .tabItem { Label("Analysis", systemImage: "chart.line.uptrend.xyaxis") }
         }
         .liquidGlassTabBarMinimizeOnScroll()
         .task {
+            // Backfill first so existing history (and CSV imports, which never
+            // touch the sync path) gets paired even when there's no SimpleFIN
+            // connection or the refresh below fails.
+            try? TransferMatchService.recompute(in: context)
             try? await SyncService.shared.refresh(context: context)
         }
     }
 
-    /// Allows `-tab <home|transactions|accounts|save>` at launch (used for testing).
+    /// Allows `-tab <home|transactions|accounts|analysis>` at launch (used for testing).
     static func initialTab() -> Tab {
         let args = CommandLine.arguments
         if let index = args.firstIndex(of: "-tab"), index + 1 < args.count {
             switch args[index + 1] {
             case "transactions": return .transactions
             case "accounts": return .accounts
-            case "save": return .save
+            case "save", "analysis": return .analysis
             default: return .home
             }
         }
