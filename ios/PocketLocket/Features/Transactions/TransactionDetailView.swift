@@ -15,6 +15,21 @@ private struct TransactionAssignmentPreparationKey: Equatable {
     let descriptor: String
 }
 
+enum TransactionSheetDismissalPolicy {
+    static let topTolerance: CGFloat = 2
+    static let requiredPullPastTop: CGFloat = 120
+
+    static func shouldDismiss(
+        startingScrollDepth: CGFloat,
+        currentScrollDepth: CGFloat,
+        translation: CGFloat
+    ) -> Bool {
+        guard currentScrollDepth <= topTolerance else { return false }
+        let pullPastTop = translation - max(0, startingScrollDepth)
+        return pullPastTop >= requiredPullPastTop
+    }
+}
+
 /// Tap a transaction to recategorize it. Choosing a category teaches the app a
 /// rule so it auto-categorizes that merchant this way from now on.
 struct TransactionDetailView: View {
@@ -312,10 +327,9 @@ struct TransactionDetailView: View {
         persistSelection()
     }
 
-    /// SwiftUI's sheet/ScrollView arbitration does not transfer a drag to the
-    /// sheet after that same drag reaches the top. Detect the unused tail of a
-    /// downward pull and dismiss without requiring the user to lift and start a
-    /// second gesture.
+    /// SwiftUI doesn't transfer a drag to the sheet after that same drag reaches
+    /// the top. Dismiss only after the content is actually at the top and the
+    /// user has deliberately pulled another 120 points.
     private var continuousDismissGesture: some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
@@ -326,10 +340,11 @@ struct TransactionDetailView: View {
                 guard !triggeredDragDismissal, value.translation.height > 0 else { return }
 
                 let startDepth = dragStartScrollDepth ?? scrollDepth
-                let unusedPull = value.translation.height - startDepth
-                let predictedUnusedPull = value.predictedEndTranslation.height - startDepth
-                guard unusedPull >= 0 else { return }
-                guard unusedPull > 72 || predictedUnusedPull > 160 else { return }
+                guard TransactionSheetDismissalPolicy.shouldDismiss(
+                    startingScrollDepth: startDepth,
+                    currentScrollDepth: scrollDepth,
+                    translation: value.translation.height
+                ) else { return }
 
                 triggeredDragDismissal = true
                 dismiss()
