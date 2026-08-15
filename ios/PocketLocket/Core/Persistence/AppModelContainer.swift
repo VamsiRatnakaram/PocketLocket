@@ -11,7 +11,12 @@ enum AppModelContainer {
         }
 
         do {
-            return try ModelContainer(for: AccountRecord.self, TransactionRecord.self, CategoryRule.self)
+            return try ModelContainer(
+                for: AccountRecord.self,
+                TransactionRecord.self,
+                CategoryRule.self,
+                MerchantGroupingRule.self
+            )
         } catch {
             persistentStoreError = error.localizedDescription
             return makeInMemoryContainer()
@@ -30,6 +35,7 @@ enum AppModelContainer {
                 for: AccountRecord.self,
                 TransactionRecord.self,
                 CategoryRule.self,
+                MerchantGroupingRule.self,
                 configurations: recoveryConfiguration
             )
         } catch {

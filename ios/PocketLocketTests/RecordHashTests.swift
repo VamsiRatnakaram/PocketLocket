@@ -73,4 +73,34 @@ final class RecordHashTests: XCTestCase {
         XCTAssertNotEqual(RecordHash.rules(base), RecordHash.rules([CategoryRule(matchText: "peets", category: .food)]))
         XCTAssertNotEqual(RecordHash.rules(base), RecordHash.rules([]))
     }
+
+    func testGroupingRuleChangesAreDetected() {
+        let base = [
+            MerchantGroupingRule(
+                sourceKey: "MS CAFE 34",
+                groupID: "cafe-group",
+                groupName: "Cafe 34"
+            )
+        ]
+        XCTAssertEqual(
+            RecordHash.groupingRules(base),
+            RecordHash.groupingRules([
+                MerchantGroupingRule(
+                    sourceKey: "MS CAFE 34",
+                    groupID: "cafe-group",
+                    groupName: "Cafe 34"
+                )
+            ])
+        )
+        XCTAssertNotEqual(
+            RecordHash.groupingRules(base),
+            RecordHash.groupingRules([
+                MerchantGroupingRule(
+                    sourceKey: "MS CAFE 34",
+                    groupID: "cafe-group",
+                    groupName: "Work Cafe"
+                )
+            ])
+        )
+    }
 }

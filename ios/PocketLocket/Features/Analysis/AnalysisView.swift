@@ -407,6 +407,7 @@ private struct AnalysisDataDriver: View {
 
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
+    @Query private var groupingRules: [MerchantGroupingRule]
 
     private var windowStart: Date? {
         range.cutoff().map { Calendar.current.startOfDay(for: $0) }
@@ -417,6 +418,7 @@ private struct AnalysisDataDriver: View {
             key: AnalysisSnapshotCache.InputsKey(
                 dataHash: AnalysisSnapshotCache.dataHash(transactions),
                 rulesHash: AnalysisSnapshotCache.rulesHash(rules),
+                groupingRulesHash: AnalysisSnapshotCache.groupingRulesHash(groupingRules),
                 excludedAccountsRaw: excludedAccountsRaw,
                 range: range,
                 windowStart: windowStart
@@ -441,7 +443,8 @@ private struct AnalysisDataDriver: View {
                         excludedAccountsRaw: excludedAccountsRaw,
                         windowStart: windowStart
                     ).map(AnalysisTransaction.init(record:)),
-                    rules: rules.map(CategoryRuleSpec.init(rule:))
+                    rules: rules.map(CategoryRuleSpec.init(rule:)),
+                    groupingRules: groupingRules.map(MerchantGroupingRuleSpec.init(rule:))
                 )
             }
             .onDisappear { coordinator.suspend() }

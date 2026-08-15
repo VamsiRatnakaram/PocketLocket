@@ -29,6 +29,7 @@ final class AppModelContainerTests: XCTestCase {
             for: AccountRecord.self,
             TransactionRecord.self,
             CategoryRule.self,
+            MerchantGroupingRule.self,
             configurations: configuration
         )
 
@@ -42,6 +43,7 @@ final class AppModelContainerTests: XCTestCase {
             for: AccountRecord.self,
             TransactionRecord.self,
             CategoryRule.self,
+            MerchantGroupingRule.self,
             configurations: configuration
         )
         let context = container.mainContext
@@ -85,6 +87,7 @@ final class AppModelContainerTests: XCTestCase {
             for: AccountRecord.self,
             TransactionRecord.self,
             CategoryRule.self,
+            MerchantGroupingRule.self,
             configurations: configuration
         )
         let context = container.mainContext

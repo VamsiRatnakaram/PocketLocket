@@ -20,10 +20,11 @@ struct AnalysisSnapshot: Sendable {
     static func make(
         inputs: [MerchantAnalytics.Input],
         categoryFilter: SpendCategory?,
+        groupingRules: [MerchantGroupingRuleSpec] = [],
         merchantLimit: Int = 8,
         minRecurringMonths: Int = 3
     ) -> AnalysisSnapshot {
-        let allStats = MerchantAnalytics.merchantStats(inputs)
+        let allStats = MerchantAnalytics.merchantStats(inputs, groupingRules: groupingRules)
         guard !allStats.isEmpty else { return AnalysisSnapshot() }
 
         // Positive amounts only, matching what every section below counts —
@@ -36,7 +37,10 @@ struct AnalysisSnapshot: Sendable {
         let filteredStats: [MerchantAnalytics.MerchantStats]
         if let categoryFilter {
             filteredInputs = inputs.filter { $0.category == categoryFilter }
-            filteredStats = MerchantAnalytics.merchantStats(filteredInputs)
+            filteredStats = MerchantAnalytics.merchantStats(
+                filteredInputs,
+                groupingRules: groupingRules
+            )
         } else {
             filteredInputs = inputs
             filteredStats = allStats
@@ -48,7 +52,10 @@ struct AnalysisSnapshot: Sendable {
             topByFrequency: MerchantAnalytics.topByFrequency(filteredStats, limit: merchantLimit),
             topBySpend: MerchantAnalytics.topBySpend(filteredStats, limit: merchantLimit),
             recurring: MerchantAnalytics.recurringMerchants(
-                filteredInputs, minMonths: minRecurringMonths, stats: filteredStats
+                filteredInputs,
+                minMonths: minRecurringMonths,
+                stats: filteredStats,
+                groupingRules: groupingRules
             ),
             // Deliberately unfiltered. These two drive the chart and the
             // averages list, which render *above* the category chips — letting
@@ -73,6 +80,7 @@ final class AnalysisSnapshotCache {
     struct InputsKey: Equatable, Sendable {
         var dataHash: Int
         var rulesHash: Int
+        var groupingRulesHash: Int = 0
         var excludedAccountsRaw: String
         var range: AnalysisTimeRange
         /// The resolved start of the window, truncated to a day.
@@ -103,11 +111,16 @@ final class AnalysisSnapshotCache {
         RecordHash.rules(rules)
     }
 
+    static func groupingRulesHash(_ rules: [MerchantGroupingRule]) -> Int {
+        RecordHash.groupingRules(rules)
+    }
+
     /// Returns the analysis snapshot for this data/filter combination,
     /// recomputing only the stages whose inputs actually changed.
     func snapshot(
         key: InputsKey,
         categoryFilter: SpendCategory?,
+        groupingRules: [MerchantGroupingRuleSpec] = [],
         buildInputs: () -> [MerchantAnalytics.Input]?
     ) -> AnalysisSnapshot? {
         if inputsKey != key {
@@ -120,7 +133,11 @@ final class AnalysisSnapshotCache {
             hasSnapshot = false
         }
         if !hasSnapshot || snapshotKey != key || snapshotFilter != categoryFilter {
-            snapshot = AnalysisSnapshot.make(inputs: inputs, categoryFilter: categoryFilter)
+            snapshot = AnalysisSnapshot.make(
+                inputs: inputs,
+                categoryFilter: categoryFilter,
+                groupingRules: groupingRules
+            )
             snapshotKey = key
             snapshotFilter = categoryFilter
             hasSnapshot = true

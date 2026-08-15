@@ -42,7 +42,7 @@ struct BackupView: View {
                 } header: {
                     Text("Export")
                 } footer: {
-                    Text("Saves an encrypted file with all your accounts, transactions, and rules. You'll need this password to restore it — it cannot be recovered.")
+                    Text("Saves an encrypted file with all your accounts, transactions, category rules, and merchant-grouping corrections. You'll need this password to restore it — it cannot be recovered.")
                 }
 
                 Section {

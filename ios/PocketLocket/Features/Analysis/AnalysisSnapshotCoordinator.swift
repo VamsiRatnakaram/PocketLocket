@@ -78,6 +78,7 @@ struct AnalysisComputeRequest: Sendable {
     var categoryFilter: SpendCategory?
     var transactions: [AnalysisTransaction]
     var rules: [CategoryRuleSpec]
+    var groupingRules: [MerchantGroupingRuleSpec] = []
 }
 
 /// Runs the analysis pipeline off the main thread.
@@ -104,7 +105,11 @@ actor AnalysisComputeEngine {
     /// still made the newest request wait for it. Checking cancellation inside
     /// the loop lets a superseded pass release the actor early.
     func snapshot(for request: AnalysisComputeRequest) -> AnalysisSnapshot? {
-        cache.snapshot(key: request.key, categoryFilter: request.categoryFilter) {
+        cache.snapshot(
+            key: request.key,
+            categoryFilter: request.categoryFilter,
+            groupingRules: request.groupingRules
+        ) {
             self.missCount += 1
             // Category resolution is the expensive half (token matching against
             // the rule index plus the heuristics table), so it happens here,
@@ -206,7 +211,12 @@ final class AnalysisSnapshotCoordinator {
     ///
     /// `transactions`/`rules` must already be extracted from SwiftData by the
     /// caller on the main thread.
-    func refresh(_ request: Request, transactions: [AnalysisTransaction], rules: [CategoryRuleSpec]) {
+    func refresh(
+        _ request: Request,
+        transactions: [AnalysisTransaction],
+        rules: [CategoryRuleSpec],
+        groupingRules: [MerchantGroupingRuleSpec] = []
+    ) {
         markRequested(request)
 
         // Already showing exactly this result — repeated renders are free.
@@ -225,7 +235,8 @@ final class AnalysisSnapshotCoordinator {
             key: request.key,
             categoryFilter: request.categoryFilter,
             transactions: transactions,
-            rules: rules
+            rules: rules,
+            groupingRules: groupingRules
         )
 
         activeTask = Task { [weak self] in

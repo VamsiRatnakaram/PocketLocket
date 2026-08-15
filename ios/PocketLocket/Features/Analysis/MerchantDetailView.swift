@@ -9,7 +9,11 @@ struct MerchantDetailView: View {
     let transactions: [TransactionRecord]
     let rules: [CategoryRule]
 
+    @Environment(\.dismiss) private var dismiss
     @State private var detail: TransactionRecord?
+    @State private var showGroupingEditor = false
+    @State private var dismissAfterGroupingEdit = false
+    @State private var dismissAfterTransactionGroupingEdit = false
 
     private var items: [TransactionRecord] {
         transactions
@@ -61,8 +65,29 @@ struct MerchantDetailView: View {
         .listStyle(.plain)
         .navigationTitle(stats.name)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $detail) { txn in
-            TransactionDetailView(txn: txn, currentCategory: txn.resolvedCategory(using: rules))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showGroupingEditor = true } label: {
+                    Label("Edit Grouping", systemImage: "rectangle.3.group")
+                }
+            }
+        }
+        .sheet(item: $detail, onDismiss: {
+            if dismissAfterTransactionGroupingEdit { dismiss() }
+        }) { txn in
+            TransactionDetailView(
+                txn: txn,
+                currentCategory: txn.resolvedCategory(using: rules)
+            ) {
+                dismissAfterTransactionGroupingEdit = true
+            }
+        }
+        .sheet(isPresented: $showGroupingEditor, onDismiss: {
+            if dismissAfterGroupingEdit { dismiss() }
+        }) {
+            MerchantGroupingEditorView(stats: stats) {
+                dismissAfterGroupingEdit = true
+            }
         }
     }
 

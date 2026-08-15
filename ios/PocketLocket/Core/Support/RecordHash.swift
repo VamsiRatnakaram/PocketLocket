@@ -46,4 +46,15 @@ enum RecordHash {
         }
         return hasher.finalize()
     }
+
+    static func groupingRules(_ rules: [MerchantGroupingRule]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(rules.count)
+        for rule in rules.sorted(by: { $0.sourceKey < $1.sourceKey }) {
+            hasher.combine(rule.sourceKey)
+            hasher.combine(rule.groupID)
+            hasher.combine(rule.groupName)
+        }
+        return hasher.finalize()
+    }
 }
