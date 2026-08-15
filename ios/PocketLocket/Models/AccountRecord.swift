@@ -11,7 +11,7 @@ enum AccountTypeChoice: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .depository: "Banking"
+        case .depository: "Depository"
         case .credit: "Credit"
         case .loan: "Loan"
         case .investment: "Investment"

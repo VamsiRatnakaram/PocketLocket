@@ -37,6 +37,7 @@ struct TransactionDetailView: View {
     @State private var didPersistBroadRule = false
     @State private var pendingRuleStateToRestore: CategoryAssignment.PreparedRuleState?
     @State private var showReimbursementAllocation = false
+    @State private var isTitleExpanded = false
     /// What the scope picker started on, so dismissing an untouched sheet
     /// writes nothing.
     private let initialScope: CategoryAssignment.Scope
@@ -83,6 +84,7 @@ struct TransactionDetailView: View {
                     transferMatchNote
                     categoryGrid
                     reimbursementNote
+                    merchantGroupingButton
                 }
                 .padding(16)
             }
@@ -94,6 +96,9 @@ struct TransactionDetailView: View {
             .sensoryFeedback(.selection, trigger: feedback)
             .task(id: assignmentPreparationKey) {
                 prepareAssignment(for: assignmentPreparationKey)
+            }
+            .onChange(of: txn.id, initial: true) {
+                isTitleExpanded = false
             }
             .alert(
                 "Couldn’t Update Category",
@@ -110,9 +115,6 @@ struct TransactionDetailView: View {
             } message: {
                 Text(assignmentErrorMessage ?? "Please try again.")
             }
-        }
-        .adaptiveSafeAreaBar(edge: .bottom, spacing: 0) {
-            merchantGroupingButton
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -150,9 +152,32 @@ struct TransactionDetailView: View {
                     .symbolEffect(.bounce, value: selected)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text(txn.title)
-                    .font(.headline)
-                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    withAnimation(.snappy(duration: 0.18)) {
+                        isTitleExpanded.toggle()
+                    }
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(txn.title)
+                            .font(.headline)
+                            .lineLimit(isTitleExpanded ? nil : 2)
+                            .multilineTextAlignment(.leading)
+                        Image(
+                            systemName: isTitleExpanded
+                                ? "chevron.up"
+                                : "chevron.down"
+                        )
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(
+                    isTitleExpanded
+                        ? "Collapses the transaction name"
+                        : "Shows the full transaction name"
+                )
                 Text(txn.date, format: .dateTime.month().day().year())
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -306,8 +331,6 @@ struct TransactionDetailView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 
     /// Lets a choice apply to one transaction instead of every transaction from
