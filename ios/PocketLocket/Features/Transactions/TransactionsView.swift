@@ -318,13 +318,26 @@ struct TransactionsView: View {
     }
 
     private var typeBar: some View {
-        Picker("Type", selection: $typeFilter) {
-            ForEach(TxnType.allCases) { Text($0.label).tag($0) }
+        VStack(spacing: 4) {
+            Picker("Type", selection: $typeFilter) {
+                ForEach(TxnType.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            if typeFilter == .returns {
+                Text(
+                    "Money received from a spending merchant—or labeled "
+                        + "refund, return, or reversal. Peer-to-peer payments stay Income."
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .pickerStyle(.segmented)
         .padding(.horizontal)
         .padding(.vertical, 8)
         .legacyBarBackground()
+        .animation(.easeInOut(duration: 0.15), value: typeFilter)
     }
 
     private var assignmentErrorBinding: Binding<Bool> {

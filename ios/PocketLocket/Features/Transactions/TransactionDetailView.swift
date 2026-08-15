@@ -81,8 +81,8 @@ struct TransactionDetailView: View {
                 VStack(spacing: 16) {
                     header
                     transferMatchNote
-                    reimbursementNote
                     categoryGrid
+                    reimbursementNote
                 }
                 .padding(16)
             }
@@ -110,6 +110,9 @@ struct TransactionDetailView: View {
             } message: {
                 Text(assignmentErrorMessage ?? "Please try again.")
             }
+        }
+        .adaptiveSafeAreaBar(edge: .bottom, spacing: 0) {
+            merchantGroupingButton
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -149,7 +152,7 @@ struct TransactionDetailView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(txn.title)
                     .font(.headline)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(txn.date, format: .dateTime.month().day().year())
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -226,57 +229,59 @@ struct TransactionDetailView: View {
                 transactionID: txn.id,
                 originalAmount: txn.amount
             )
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Reimbursement", systemImage: "person.2.fill")
-                    .font(.headline)
-                    .foregroundStyle(.green)
-                Text(applied > 0
+            reimbursementCard(
+                title: applied > 0 ? "Reimbursement applied" : "Apply reimbursement",
+                detail: applied > 0
                     ? "\(CurrencyFormatter.string(applied, code: txn.isoCurrencyCode)) applied • "
                         + "\(CurrencyFormatter.string(remaining, code: txn.isoCurrencyCode)) remaining"
-                    : "Apply money friends paid back to the purchases it covered.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Button { showReimbursementAllocation = true } label: {
-                    Label(applied > 0 ? "Review Allocations" : "Apply to Purchases", systemImage: "arrow.triangle.branch")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                    : "Apply money received to the purchases it covered."
+            )
         } else if txn.amount > 0 {
             let reimbursed = index.allocatedToExpense(txn.id)
             if selected.isSpending || reimbursed > 0.005 {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label(
-                        reimbursed > 0.005
-                            ? (reimbursed >= txn.amount - 0.005 ? "Fully reimbursed" : "Partly reimbursed")
-                            : "Reimbursement",
-                        systemImage: "person.2.fill"
-                    )
-                    .font(.headline)
-                    .foregroundStyle(.green)
-                    Text(reimbursed > 0.005
+                reimbursementCard(
+                    title: reimbursed > 0.005
+                        ? (reimbursed >= txn.amount - 0.005
+                            ? "Fully reimbursed"
+                            : "Partly reimbursed")
+                        : "Assign reimbursement",
+                    detail: reimbursed > 0.005
                         ? "\(CurrencyFormatter.string(reimbursed, code: txn.isoCurrencyCode)) paid back • "
                             + "\(CurrencyFormatter.string(max(0, txn.amount - reimbursed), code: txn.isoCurrencyCode)) net spending"
-                        : "Assign incoming payments from friends directly to this purchase.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Button { showReimbursementAllocation = true } label: {
-                        Label(
-                            reimbursed > 0.005 ? "Review Reimbursements" : "Assign Reimbursement",
-                            systemImage: "arrow.triangle.branch"
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                        : "Assign incoming payments directly to this purchase."
+                )
             }
         }
+    }
+
+    private func reimbursementCard(title: String, detail: String) -> some View {
+        Button { showReimbursementAllocation = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "person.2.fill")
+                    .foregroundStyle(.green)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(
+                Color.green.opacity(0.1),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var categoryGrid: some View {
@@ -292,12 +297,17 @@ struct TransactionDetailView: View {
             }
             .liquidGlassContainer(spacing: 8)
             scopePicker
-            Button { editGrouping() } label: {
-                Label("Edit Merchant Grouping", systemImage: "rectangle.3.group")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
         }
+    }
+
+    private var merchantGroupingButton: some View {
+        Button { editGrouping() } label: {
+            Label("Edit Merchant Grouping", systemImage: "rectangle.3.group")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     /// Lets a choice apply to one transaction instead of every transaction from
