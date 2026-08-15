@@ -2,6 +2,21 @@ import XCTest
 @testable import PocketLocket
 
 final class MerchantHeuristicsTests: XCTestCase {
+    func testInvestmentCashActivityCategories() {
+        XCTAssertEqual(
+            MerchantHeuristics.category(for: "INTEREST EARNED CASH (315994103)"),
+            .income
+        )
+        XCTAssertEqual(
+            MerchantHeuristics.category(for: "REINVESTMENT CASH (315994103)"),
+            .transfer
+        )
+        XCTAssertEqual(
+            MerchantHeuristics.category(for: "contribution"),
+            .transfer
+        )
+    }
+
     private func category(_ text: String) -> SpendCategory? {
         MerchantHeuristics.category(for: text.lowercased())
     }
