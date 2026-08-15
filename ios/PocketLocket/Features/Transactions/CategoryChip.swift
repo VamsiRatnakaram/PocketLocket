@@ -12,8 +12,8 @@ struct CategoryChip: View {
                 .overlay(alignment: .topTrailing) {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.caption.weight(.bold))
-                            .padding(8)
+                            .font(.caption2.weight(.bold))
+                            .padding(5)
                             .accessibilityHidden(true)
                     }
                 }
@@ -37,19 +37,21 @@ struct CategoryChip: View {
     }
 
     private var label: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Image(systemName: category.symbol)
-                .font(.title3)
+                .font(.body.weight(.medium))
             Text(category.displayName)
-                .font(.caption)
+                .font(.caption2)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
                 .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity, minHeight: 74)
-        .padding(8)
+        .frame(maxWidth: .infinity, minHeight: 58)
+        .padding(4)
     }
 
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
     }
 
     /// A softened tint keeps selection clear without making the glass read as

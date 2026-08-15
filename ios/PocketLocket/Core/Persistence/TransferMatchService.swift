@@ -15,7 +15,10 @@ import SwiftData
 @MainActor
 enum TransferMatchService {
     @discardableResult
-    static func recompute(in context: ModelContext) throws -> Int {
+    static func recompute(
+        in context: ModelContext,
+        saveChanges: Bool = true
+    ) throws -> Int {
         let transactions = try context.fetch(FetchDescriptor<TransactionRecord>())
         let accounts = try context.fetch(FetchDescriptor<AccountRecord>())
 
@@ -53,7 +56,7 @@ enum TransferMatchService {
                 changed += 1
             }
         }
-        if changed > 0 {
+        if changed > 0, saveChanges {
             try context.save()
         }
         return changed

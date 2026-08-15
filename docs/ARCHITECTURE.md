@@ -65,7 +65,8 @@ ios/
       Import/                 OFXParser, CSVParser, ImportService
     Models/                   SpendCategory, CategoryResolver, MerchantHeuristics,
                               SpendAggregator, SavingsAdvisor, AccountRecord,
-                              TransactionRecord, CategoryRule
+                              TransactionRecord, CategoryRule,
+                              ReimbursementAllocation
     Features/                 Home, Transactions, Accounts, Connect, Save, Settings
     DesignSystem/             Formatters
     Resources/                Info.plist, Assets
@@ -237,13 +238,15 @@ Threats considered: a stolen device and a decompiled binary.
 
 ## 6. Data model
 
-Everything is local SwiftData. Two records back the UI; a third stores learned
-category overrides.
+Everything is local SwiftData. Reimbursement allocations preserve the imported
+ledger while letting one inflow offset portions of one or more purchases.
 
 ```mermaid
 erDiagram
     AccountRecord ||--o{ TransactionRecord : contains
     TransactionRecord }o--|| CategoryRule : "overridden by (merchant)"
+    TransactionRecord ||--o{ ReimbursementAllocation : "source inflow"
+    TransactionRecord ||--o{ ReimbursementAllocation : "offset expense"
 
     AccountRecord {
         string id PK
@@ -265,6 +268,12 @@ erDiagram
         string merchant PK
         string category "user's chosen SpendCategory"
     }
+    ReimbursementAllocation {
+      string id PK
+      string sourceTransactionID FK
+      string expenseTransactionID FK
+      double amount "positive partial allocation"
+    }
 ```
 
 > The field names `plaidAccountId` / `plaidTransactionId` are historical; they
@@ -274,7 +283,9 @@ erDiagram
 **Amount convention:** the app uses **positive = money spent**, negative =
 income. SimpleFIN reports positive for deposits, so `SimpleFINMapper` negates
 amounts on import. The ring sums positive amounts of spending categories only
-(income/transfers excluded).
+(income/transfers excluded). A reimbursement allocation subtracts from the
+linked purchase for budget and analysis math on that purchase's original date;
+neither bank transaction is edited.
 
 ---
 

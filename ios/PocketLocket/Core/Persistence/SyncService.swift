@@ -32,10 +32,21 @@ final class SyncService {
         // keeps going, and a fresh sync could start alongside it.
         let task = Task {
             defer { self.inFlight = nil }
-            try await self.refreshSimpleFIN(context: context)
-            // After new rows land, re-pair transfers across the whole history:
-            // the two legs of a card payoff routinely arrive in different syncs.
-            try TransferMatchService.recompute(in: context)
+            do {
+                try await self.refreshSimpleFIN(context: context)
+                // After new rows land, re-pair transfers across the whole
+                // history, then reconcile reimbursements against the same
+                // unsaved transaction state. Commit all three together.
+                try TransferMatchService.recompute(
+                    in: context,
+                    saveChanges: false
+                )
+                try ReimbursementAllocationService.reconcile(in: context)
+                try context.save()
+            } catch {
+                context.rollback()
+                throw error
+            }
         }
         inFlight = task
         try await task.value
@@ -58,21 +69,32 @@ final class SyncService {
         var accountsByID = Dictionary(uniqueKeysWithValues: localAccounts.map { ($0.id, $0) })
         for account in set.accounts {
             let accountId = "sf-" + account.id
-            upsertLocalAccount(
+            let accountType = SimpleFINMapper.inferType(
+                name: account.name,
+                transactionDescriptions: (account.transactions ?? []).compactMap(\.description)
+            )
+            let becameInvestment = upsertLocalAccount(
                 id: accountId,
                 name: account.name ?? "Account",
                 balance: Double(account.balance ?? "") ?? 0,
                 currency: account.currency ?? "USD",
-                type: SimpleFINMapper.inferType(name: account.name),
+                type: accountType,
                 accountsByID: &accountsByID,
                 context: context
             )
+            if becameInvestment {
+                excludeFromSpending(accountId)
+            }
             for txn in account.transactions ?? [] {
                 // SimpleFIN transaction ids can repeat across accounts, so namespace them.
                 upsertLocalTxn(
                     id: "sf-\(account.id)-\(txn.id)",
                     name: txn.description ?? "Transaction",
-                    amount: SimpleFINMapper.appAmount(from: txn.amount),
+                    amount: SimpleFINMapper.appAmount(
+                        from: txn.amount,
+                        description: txn.description,
+                        accountType: accountType
+                    ),
                     date: txn.posted.map { Date(timeIntervalSince1970: $0) } ?? Date(),
                     pending: txn.pending ?? false,
                     accountId: accountId,
@@ -84,16 +106,21 @@ final class SyncService {
                 )
             }
         }
-        try context.save()
     }
 
-    private func upsertLocalAccount(id: String, name: String, balance: Double, currency: String, type: String, accountsByID: inout [String: AccountRecord], context: ModelContext) {
+    @discardableResult
+    private func upsertLocalAccount(id: String, name: String, balance: Double, currency: String, type: String, accountsByID: inout [String: AccountRecord], context: ModelContext) -> Bool {
         let existing = accountsByID[id]
         if let existing {
+            let shouldExclude = SimpleFINMapper.shouldDefaultExclude(
+                previousType: existing.type,
+                newType: type
+            )
             existing.name = name
             existing.currentBalance = balance
             existing.isoCurrencyCode = currency
             existing.type = type
+            return shouldExclude
         } else {
             let account = AccountRecord(
                 id: id, plaidAccountId: id, name: name, officialName: name,
@@ -102,7 +129,23 @@ final class SyncService {
             )
             context.insert(account)
             accountsByID[id] = account
+            return SimpleFINMapper.shouldDefaultExclude(
+                previousType: nil,
+                newType: type
+            )
         }
+    }
+
+    private func excludeFromSpending(_ accountID: String) {
+        let defaults = UserDefaults.standard
+        let raw = defaults.string(forKey: SpendingAccountFilter.key) ?? ""
+        guard !SpendingAccountFilter.excludedIds(from: raw).contains(accountID) else {
+            return
+        }
+        defaults.set(
+            SpendingAccountFilter.toggling(accountID, in: raw),
+            forKey: SpendingAccountFilter.key
+        )
     }
 
     private func upsertLocalTxn(id: String, name: String, amount: Double, date: Date, pending: Bool, accountId: String, currency: String, categoryPrimary: String?, transactionsByID: inout [String: TransactionRecord], dedupeIndex: inout [String: String], context: ModelContext) {
@@ -137,7 +180,17 @@ final class SyncService {
 enum SimpleFINDataStore {
     static func deleteSyncedData(in context: ModelContext) throws {
         let transactions = try context.fetch(FetchDescriptor<TransactionRecord>())
-        for transaction in transactions where transaction.plaidTransactionId.hasPrefix("sf-") {
+        let deletedTransactions = transactions.filter {
+            $0.plaidTransactionId.hasPrefix("sf-")
+        }
+        let deletedIDs = Set(deletedTransactions.map(\.id))
+        let allocations = try context.fetch(FetchDescriptor<ReimbursementAllocation>())
+        ReimbursementAllocationService.deleteAllocations(
+            referencing: deletedIDs,
+            from: allocations,
+            in: context
+        )
+        for transaction in deletedTransactions {
             context.delete(transaction)
         }
 

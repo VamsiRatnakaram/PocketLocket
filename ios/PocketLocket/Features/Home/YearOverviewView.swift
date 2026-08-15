@@ -10,6 +10,7 @@ struct YearOverviewView: View {
 
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var yearOffset = 0
@@ -36,6 +37,7 @@ struct YearOverviewView: View {
     private struct YearKey: Equatable {
         var dataHash: Int
         var rulesHash: Int
+        var reimbursementsHash: Int
         var year: Int
         var excludedAccountsRaw: String
     }
@@ -57,19 +59,25 @@ struct YearOverviewView: View {
         let key = YearKey(
             dataHash: RecordHash.transactions(yearTransactions),
             rulesHash: RecordHash.rules(rules),
+            reimbursementsHash: RecordHash.reimbursements(reimbursementAllocations),
             year: year,
             excludedAccountsRaw: excludedAccountsRaw
         )
         return summaryCache.value(for: key) {
+            let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
             var items: [SpendItem] = []
             var buckets = Array(repeating: 0.0, count: 12)
 
             for txn in yearTransactions {
                 let category = txn.resolvedCategory(using: rules)
-                items.append(SpendItem(category: category, amount: txn.amount))
-                guard category.isSpending, txn.amount > 0 else { continue }
+                let effectiveAmount = reimbursementIndex.effectiveExpenseAmount(
+                    transactionID: txn.id,
+                    originalAmount: txn.amount
+                )
+                items.append(SpendItem(category: category, amount: effectiveAmount))
+                guard category.isSpending, effectiveAmount > 0 else { continue }
                 let index = calendar.component(.month, from: txn.date) - 1
-                if index >= 0, index < 12 { buckets[index] += txn.amount }
+                if index >= 0, index < 12 { buckets[index] += effectiveAmount }
             }
 
             let spends = SpendAggregator.totals(items)

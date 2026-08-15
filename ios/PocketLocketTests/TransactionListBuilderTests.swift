@@ -77,6 +77,59 @@ final class TransactionListBuilderTests: XCTestCase {
         XCTAssertEqual(TransactionListBuilder.classify(deposit, category: .other), .income)
     }
 
+    func testPeerToPeerInflowIsNotAReturnWhenGivenASpendingCategory() {
+        for name in ["ZELLE PAYMENT FROM ALEX", "VENMO PAYMENT JORDAN"] {
+            let payment = txn(name, name: name, amount: -40, day: 3)
+            XCTAssertEqual(
+                TransactionListBuilder.classify(payment, category: .food),
+                .income,
+                name
+            )
+        }
+    }
+
+    func testExplicitPeerToPeerRefundStillCountsAsReturn() {
+        let refund = txn(
+            "venmo-refund",
+            name: "VENMO REFUND FROM MERCHANT",
+            amount: -40,
+            day: 3
+        )
+        XCTAssertEqual(
+            TransactionListBuilder.classify(refund, category: .food),
+            .returns
+        )
+    }
+
+    func testFullyReimbursedExpenseIsNotInBudget() {
+        let expense = txn("dinner", name: "Dinner", amount: 120, day: 1)
+        let allocation = ReimbursementAllocationSpec(
+            id: "a1",
+            sourceTransactionID: "venmo",
+            expenseTransactionID: expense.id,
+            amount: 120
+        )
+        let index = ReimbursementAllocationIndex([allocation])
+
+        let counted = TransactionListBuilder.rows(
+            from: [expense],
+            criteria: .init(budget: .counted),
+            reimbursementIndex: index,
+            resolve: { _ in .food }
+        )
+        let excluded = TransactionListBuilder.rows(
+            from: [expense],
+            criteria: .init(budget: .excluded),
+            reimbursementIndex: index,
+            resolve: { _ in .food }
+        )
+
+        XCTAssertTrue(counted.isEmpty)
+        XCTAssertEqual(excluded.first?.id, expense.id)
+        XCTAssertEqual(excluded.first?.effectiveAmount, 0)
+        XCTAssertEqual(excluded.first?.reimbursedAmount, 120)
+    }
+
     func testAccountFilter() {
         XCTAssertEqual(rows(.init(accountId: "savings")).map(\.id), ["2"])
     }

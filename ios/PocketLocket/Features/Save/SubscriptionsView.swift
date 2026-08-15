@@ -7,6 +7,7 @@ import SwiftData
 struct SubscriptionsView: View {
     @Query private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
 
     init() {
@@ -204,6 +205,7 @@ struct SubscriptionsView: View {
 
     private var subscriptions: [Sub] {
         let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
+        let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
         let recurring = transactions.filter { txn in
             txn.amount > 0
                 && SpendingAccountFilter.isIncluded(txn.accountId, excluded: excluded)
@@ -221,11 +223,20 @@ struct SubscriptionsView: View {
         return byMerchant.compactMap { merchant, txns -> Sub? in
             guard let latest = txns.max(by: { $0.date < $1.date }) else { return nil }
             let sorted = txns.sorted { $0.date < $1.date }
+            let effectiveLatestAmount = reimbursementIndex.effectiveExpenseAmount(
+                transactionID: latest.id,
+                originalAmount: latest.amount
+            )
             let (cadence, confidence, monthlyEquivalent, isStale) = Sub.classify(
-                dates: sorted.map(\.date), amount: latest.amount, dataHorizonDays: dataHorizonDays
+                dates: sorted.map(\.date),
+                amount: effectiveLatestAmount,
+                dataHorizonDays: dataHorizonDays
             )
             return Sub(
-                id: merchant, merchant: merchant, amount: latest.amount, lastDate: latest.date,
+                id: merchant,
+                merchant: merchant,
+                amount: effectiveLatestAmount,
+                lastDate: latest.date,
                 category: latest.resolvedCategory(using: rules), count: txns.count,
                 cadence: cadence, confidence: confidence, isStale: isStale,
                 monthlyEquivalent: monthlyEquivalent
@@ -239,7 +250,7 @@ struct SubscriptionsView: View {
         }
     }
 
-    private var monthlyTotal: Double {
+    private func monthlyTotal(_ subscriptions: [Sub]) -> Double {
         // Stale subscriptions are shown (so the user can see/remove them from
         // tracking) but excluded from the headline total — a cancelled
         // service shouldn't permanently inflate "Estimated monthly".
@@ -254,13 +265,17 @@ struct SubscriptionsView: View {
     }
 
     var body: some View {
+        content(subscriptions)
+    }
+
+    private func content(_ subscriptions: [Sub]) -> some View {
         List {
             if !subscriptions.isEmpty {
                 Section {
                     HStack {
                         Text("Estimated monthly")
                         Spacer()
-                        Text(CurrencyFormatter.string(monthlyTotal))
+                        Text(CurrencyFormatter.string(monthlyTotal(subscriptions)))
                             .monospacedDigit()
                             .fontWeight(.semibold)
                     }

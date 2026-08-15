@@ -11,6 +11,7 @@ final class BackupServiceTests: XCTestCase {
             TransactionRecord.self,
             CategoryRule.self,
             MerchantGroupingRule.self,
+            ReimbursementAllocation.self,
             configurations: config
         )
         return ModelContext(container)
@@ -27,6 +28,17 @@ final class BackupServiceTests: XCTestCase {
             amount: 4.5, isoCurrencyCode: "USD", date: .now, pending: false,
             categoryPrimary: nil, categoryDetailed: nil, logoURL: nil, accountId: "sf-1"
         ))
+        context.insert(TransactionRecord(
+            id: "sf-1-refund", plaidTransactionId: "sf-1-refund", name: "Venmo", merchantName: "Venmo",
+            amount: -2, isoCurrencyCode: "USD", date: .now, pending: false,
+            categoryPrimary: nil, categoryDetailed: nil, logoURL: nil, accountId: "sf-1"
+        ))
+        context.insert(ReimbursementAllocation(
+            id: "allocation-1",
+            sourceTransactionID: "sf-1-refund",
+            expenseTransactionID: "sf-1-a",
+            amount: 2
+        ))
         context.insert(CategoryRule(matchText: "coffee", category: .food))
         context.insert(MerchantGroupingRule(sourceKey: "SQ *COFFEE 101", groupName: "Coffee"))
         try context.save()
@@ -35,8 +47,13 @@ final class BackupServiceTests: XCTestCase {
     func testEncryptedRoundTripPreservesData() throws {
         let source = try makeContext()
         try seed(source)
+        let sourceID = "sf-1-a"
         let sourceTransaction = try XCTUnwrap(
-            source.fetch(FetchDescriptor<TransactionRecord>()).first
+            source.fetch(
+                FetchDescriptor<TransactionRecord>(
+                    predicate: #Predicate { $0.id == sourceID }
+                )
+            ).first
         )
         sourceTransaction.categoryOverride = .food
         try source.save()
@@ -49,8 +66,8 @@ final class BackupServiceTests: XCTestCase {
 
         let dest = try makeContext()
         let inserted = try BackupService.importEncrypted(file, password: "hunter2", context: dest)
-        XCTAssertEqual(inserted, 1)
-        XCTAssertEqual(try dest.fetch(FetchDescriptor<TransactionRecord>()).count, 1)
+        XCTAssertEqual(inserted, 2)
+        XCTAssertEqual(try dest.fetch(FetchDescriptor<TransactionRecord>()).count, 2)
         XCTAssertEqual(try dest.fetch(FetchDescriptor<AccountRecord>()).count, 1)
         XCTAssertEqual(try dest.fetch(FetchDescriptor<CategoryRule>()).count, 1)
         let groupingRule = try XCTUnwrap(
@@ -60,9 +77,19 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(groupingRule.groupName, "Coffee")
         XCTAssertFalse(groupingRule.groupID.isEmpty)
         let restoredTransaction = try XCTUnwrap(
-            dest.fetch(FetchDescriptor<TransactionRecord>()).first
+            dest.fetch(
+                FetchDescriptor<TransactionRecord>(
+                    predicate: #Predicate { $0.id == sourceID }
+                )
+            ).first
         )
         XCTAssertEqual(restoredTransaction.categoryOverride, .food)
+        let restoredAllocation = try XCTUnwrap(
+            dest.fetch(FetchDescriptor<ReimbursementAllocation>()).first
+        )
+        XCTAssertEqual(restoredAllocation.sourceTransactionID, "sf-1-refund")
+        XCTAssertEqual(restoredAllocation.expenseTransactionID, "sf-1-a")
+        XCTAssertEqual(restoredAllocation.amount, 2)
     }
 
     func testPayloadWithoutGroupingRulesStillDecodes() throws {
@@ -70,7 +97,8 @@ final class BackupServiceTests: XCTestCase {
             accounts: [],
             transactions: [],
             rules: [],
-            groupingRules: nil
+            groupingRules: nil,
+            reimbursementAllocations: nil
         )
         let encoded = try JSONEncoder().encode(payload)
         let decoded = try JSONDecoder().decode(BackupService.Payload.self, from: encoded)
@@ -95,6 +123,6 @@ final class BackupServiceTests: XCTestCase {
         _ = try BackupService.importEncrypted(file, password: "pw", context: dest)
         let secondPass = try BackupService.importEncrypted(file, password: "pw", context: dest)
         XCTAssertEqual(secondPass, 0) // nothing new the second time
-        XCTAssertEqual(try dest.fetch(FetchDescriptor<TransactionRecord>()).count, 1)
+        XCTAssertEqual(try dest.fetch(FetchDescriptor<TransactionRecord>()).count, 2)
     }
 }

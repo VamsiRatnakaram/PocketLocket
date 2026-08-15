@@ -51,11 +51,75 @@ final class SimpleFINTests: XCTestCase {
         XCTAssertEqual(SimpleFINMapper.appAmount(from: "1500.00"), -1500.0, accuracy: 0.001)
     }
 
+    func testInvestmentContributionUsesProviderLedgerSemantics() {
+        XCTAssertEqual(
+            SimpleFINMapper.appAmount(
+                from: "-141.66",
+                description: "PARTIC CONTR CURRENT PARTICIPANT CUR YR (Cash)",
+                accountType: "investment"
+            ),
+            -141.66,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SimpleFINMapper.appAmount(
+                from: "-500.00",
+                description: "CO CONTR CURRENT YR EMPLOYER CUR YR (Cash)",
+                accountType: "investment"
+            ),
+            -500,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SimpleFINMapper.appAmount(
+                from: "-0.57",
+                description: "REINVESTMENT FDRXX (Cash)",
+                accountType: "investment"
+            ),
+            0.57,
+            accuracy: 0.001
+        )
+    }
+
     func testInferType() {
         XCTAssertEqual(SimpleFINMapper.inferType(name: "Chase Credit Card"), "credit")
         XCTAssertEqual(SimpleFINMapper.inferType(name: "Amex Platinum"), "credit")
       XCTAssertEqual(SimpleFINMapper.inferType(name: "Auto Loan"), "loan")
       XCTAssertEqual(SimpleFINMapper.inferType(name: "Home Mortgage"), "loan")
         XCTAssertEqual(SimpleFINMapper.inferType(name: "SimpleFIN Checking"), "depository")
+        XCTAssertEqual(
+            SimpleFINMapper.inferType(name: "Health Savings Account (4166)"),
+            "investment"
+        )
+        XCTAssertEqual(
+            SimpleFINMapper.inferType(name: "Fidelity Roth IRA"),
+            "investment"
+        )
+        XCTAssertEqual(
+            SimpleFINMapper.inferType(name: "MICROSOFT ESPP PLAN"),
+            "investment"
+        )
+        XCTAssertEqual(
+            SimpleFINMapper.inferType(
+                name: "Individual (2759)",
+                transactionDescriptions: [
+                    "DIVIDEND RECEIVED VANGUARD INDEX FUND",
+                    "REINVESTMENT CASH"
+                ]
+            ),
+            "investment"
+        )
+        XCTAssertTrue(
+            SimpleFINMapper.shouldDefaultExclude(
+                previousType: "depository",
+                newType: "investment"
+            )
+        )
+        XCTAssertFalse(
+            SimpleFINMapper.shouldDefaultExclude(
+                previousType: "investment",
+                newType: "investment"
+            )
+        )
     }
 }

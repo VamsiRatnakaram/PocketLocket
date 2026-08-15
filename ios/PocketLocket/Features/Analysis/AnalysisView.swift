@@ -901,6 +901,7 @@ private struct AnalysisDataDriver: View {
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
     @Query private var groupingRules: [MerchantGroupingRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
 
     private var excludedAccountIDs: Set<String> {
         SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
@@ -910,6 +911,19 @@ private struct AnalysisDataDriver: View {
         transactions.filter {
             SpendingAccountFilter.isIncluded($0.accountId, excluded: excludedAccountIDs)
         }
+    }
+
+    private func analysisTransaction(
+        _ transaction: TransactionRecord,
+        reimbursementIndex: ReimbursementAllocationIndex
+    ) -> AnalysisTransaction {
+        AnalysisTransaction(
+            record: transaction,
+            effectiveAmount: reimbursementIndex.effectiveExpenseAmount(
+                transactionID: transaction.id,
+                originalAmount: transaction.amount
+            )
+        )
     }
 
     private var domain: DateInterval {
@@ -963,6 +977,7 @@ private struct AnalysisDataDriver: View {
                     dataHash: AnalysisSnapshotCache.dataHash(included),
                     rulesHash: AnalysisSnapshotCache.rulesHash(rules),
                     groupingRulesHash: AnalysisSnapshotCache.groupingRulesHash(groupingRules),
+                    reimbursementsHash: RecordHash.reimbursements(reimbursementAllocations),
                     excludedAccountsRaw: excludedAccountsRaw
                 ),
                 window: analysisWindow,
@@ -973,6 +988,7 @@ private struct AnalysisDataDriver: View {
                 key: SavingsSuggestionsCache.InputsKey(
                     dataHash: RecordHash.transactions(suggestions),
                     rulesHash: RecordHash.rules(rules),
+                    reimbursementsHash: RecordHash.reimbursements(reimbursementAllocations),
                     excludedAccountsRaw: excludedAccountsRaw,
                     monthlyBudget: monthlyBudget,
                     monthStart: currentMonth.start
@@ -1004,18 +1020,26 @@ private struct AnalysisDataDriver: View {
     private func refresh(_ request: Request) {
         let ruleSpecs = rules.map(CategoryRuleSpec.init(rule:))
         let included = includedTransactions
+        let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
         analysisCoordinator.refresh(
             request.analysis,
-            transactions: included.map(AnalysisTransaction.init(record:)),
+            transactions: included.map {
+                analysisTransaction($0, reimbursementIndex: reimbursementIndex)
+            },
             rules: ruleSpecs,
             groupingRules: groupingRules.map(MerchantGroupingRuleSpec.init(rule:))
         )
 
-        questionEntries = questionTransactions.map { transaction in
-            TransactionQuestionContext.Entry(
+        questionEntries = questionTransactions.compactMap { transaction in
+            let amount = reimbursementIndex.effectiveLedgerAmount(
+                transactionID: transaction.id,
+                originalAmount: transaction.amount
+            )
+            guard abs(amount) > 0.005 else { return nil }
+            return TransactionQuestionContext.Entry(
                 date: transaction.date,
                 title: transaction.title,
-                amount: transaction.amount,
+                amount: amount,
                 currency: transaction.isoCurrencyCode,
                 category: transaction.resolvedCategory(using: rules).displayName
             )
@@ -1023,7 +1047,9 @@ private struct AnalysisDataDriver: View {
 
         savingsCoordinator.refresh(
             request.savings,
-            transactions: suggestionTransactions.map(AnalysisTransaction.init(record:)),
+            transactions: suggestionTransactions.map {
+                analysisTransaction($0, reimbursementIndex: reimbursementIndex)
+            },
             rules: ruleSpecs,
             currentMonth: currentMonth,
             previousMonth: previousMonth,
@@ -1042,6 +1068,7 @@ private struct AnalysisMerchantDestination: View {
 
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
 
     var body: some View {
         MerchantDetailView(
@@ -1051,7 +1078,8 @@ private struct AnalysisMerchantDestination: View {
                 excludedAccountsRaw: excludedAccountsRaw,
                 window: window
             ),
-            rules: rules
+            rules: rules,
+            reimbursementAllocations: reimbursementAllocations
         )
     }
 }
@@ -1063,6 +1091,7 @@ private struct AnalysisCategoryDestination: View {
 
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
 
     var body: some View {
         AnalysisCategoryDetailView(
@@ -1072,7 +1101,8 @@ private struct AnalysisCategoryDestination: View {
                 excludedAccountsRaw: excludedAccountsRaw,
                 window: window
             ),
-            rules: rules
+            rules: rules,
+            reimbursementAllocations: reimbursementAllocations
         )
     }
 }

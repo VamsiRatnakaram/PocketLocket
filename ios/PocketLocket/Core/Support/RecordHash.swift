@@ -57,4 +57,16 @@ enum RecordHash {
         }
         return hasher.finalize()
     }
+
+    static func reimbursements(_ allocations: [ReimbursementAllocation]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(allocations.count)
+        for allocation in allocations.sorted(by: { $0.id < $1.id }) {
+            hasher.combine(allocation.id)
+            hasher.combine(allocation.sourceTransactionID)
+            hasher.combine(allocation.expenseTransactionID)
+            hasher.combine(allocation.amount)
+        }
+        return hasher.finalize()
+    }
 }
