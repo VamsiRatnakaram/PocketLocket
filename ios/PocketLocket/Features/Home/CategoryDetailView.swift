@@ -79,7 +79,7 @@ struct CategoryDetailView: View {
         .listStyle(.plain)
         .navigationTitle(category.displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) {
+        .adaptiveSafeAreaBar(edge: .bottom) {
             if isSelecting { selectionBar }
         }
         .toolbar {
@@ -136,12 +136,12 @@ struct CategoryDetailView: View {
             } label: {
                 Label("Move to Category", systemImage: "tag.fill")
             }
-            .buttonStyle(.borderedProminent)
+            .adaptiveProminentButtonStyle()
             .disabled(selectedTransactionIDs.isEmpty)
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
-        .background(.bar)
+        .legacyBarBackground()
     }
 
     private var assignmentErrorBinding: Binding<Bool> {

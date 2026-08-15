@@ -1,53 +1,125 @@
 import SwiftUI
 
-/// Liquid Glass with a floor for older systems.
+enum LiquidGlassButtonEmphasis {
+    case standard
+    case prominent
+}
+
+/// Compatibility shims for the iOS 26 control and navigation layer.
 ///
-/// The app still deploys to iOS 17, and `glassEffect` is iOS 26+, so every use
-/// needs a fallback. Doing that inline at each call site means an `if
-/// #available` wrapped around a `background` in half a dozen places, which is
-/// where inconsistencies creep in -- one surface gets the glass, the next keeps
-/// a flat fill, and they sit next to each other looking unrelated.
-///
-/// So the choice is made once, here.
+/// These APIs intentionally don't offer a general-purpose "glass card": content
+/// surfaces should stay in the content layer instead of competing with the
+/// system's glass navigation.
 extension View {
-    /// A raised content surface: cards, panels, anything that should read as
-    /// floating above the background.
-    ///
-    /// On iOS 26 this is Liquid Glass. Below that it falls back to the flat
-    /// `secondarySystemBackground` fill these surfaces already used, so the
-    /// pre-26 appearance is unchanged rather than approximated.
-    func glassSurface(cornerRadius: CGFloat = 16) -> some View {
-        modifier(GlassSurface(cornerRadius: cornerRadius))
+    func liquidGlassContainer(spacing: CGFloat? = nil) -> some View {
+        modifier(LiquidGlassContainer(spacing: spacing))
     }
 
-    /// Groups nearby glass surfaces so the system renders and blends them in
-    /// one pass. Apple's guidance is that ungrouped glass effects sitting close
-    /// together each get their own sampling pass, which is exactly the shape of
-    /// a scrolling list of cards.
-    func glassSurfaceGroup() -> some View {
-        modifier(GlassSurfaceGroup())
+    func liquidGlassCircleControl() -> some View {
+        modifier(LiquidGlassCircleControl())
+    }
+
+    @ViewBuilder
+    func liquidGlassButtonStyle(_ emphasis: LiquidGlassButtonEmphasis = .standard) -> some View {
+        if #available(iOS 26.0, *) {
+            switch emphasis {
+            case .standard:
+                buttonStyle(.glass)
+            case .prominent:
+                buttonStyle(.glassProminent)
+            }
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func adaptiveProminentButtonStyle() -> some View {
+        if #available(iOS 26.0, *) {
+            buttonStyle(.glassProminent)
+        } else {
+            buttonStyle(.borderedProminent)
+        }
+    }
+
+    @ViewBuilder
+    func liquidGlassPressableButtonStyle(fallbackScale: CGFloat = 0.96) -> some View {
+        if #available(iOS 26.0, *) {
+            buttonStyle(.plain)
+        } else {
+            buttonStyle(PressableStyle(scale: fallbackScale))
+        }
+    }
+
+    @ViewBuilder
+    func liquidGlassTabBarMinimizeOnScroll() -> some View {
+        if #available(iOS 26.0, *) {
+            tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func adaptiveSafeAreaBar<Bar: View>(
+        edge: VerticalEdge,
+        alignment: HorizontalAlignment = .center,
+        spacing: CGFloat? = nil,
+        @ViewBuilder content: () -> Bar
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            safeAreaBar(edge: edge, alignment: alignment, spacing: spacing, content: content)
+        } else {
+            safeAreaInset(edge: edge, alignment: alignment, spacing: spacing, content: content)
+        }
+    }
+
+    @ViewBuilder
+    func legacyBarBackground() -> some View {
+        if #available(iOS 26.0, *) {
+            self
+        } else {
+            background(.bar)
+        }
+    }
+
+    @ViewBuilder
+    func legacyTopDivider() -> some View {
+        if #available(iOS 26.0, *) {
+            self
+        } else {
+            overlay(alignment: .top) { Divider() }
+        }
+    }
+
+    @ViewBuilder
+    func platformPresentationCornerRadius(_ legacyRadius: CGFloat) -> some View {
+        if #available(iOS 26.0, *) {
+            self
+        } else {
+            presentationCornerRadius(legacyRadius)
+        }
     }
 }
 
-struct GlassSurfaceGroup: ViewModifier {
+private struct LiquidGlassContainer: ViewModifier {
+    let spacing: CGFloat?
+
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            GlassEffectContainer { content }
+            GlassEffectContainer(spacing: spacing) { content }
         } else {
             content
         }
     }
 }
 
-struct GlassSurface: ViewModifier {
-    var cornerRadius: CGFloat = 16
-
+private struct LiquidGlassCircleControl: ViewModifier {
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular, in: shape)
+            content.glassEffect(.regular.interactive(), in: Circle())
         } else {
-            content.background(Color(.secondarySystemBackground), in: shape)
+            content
         }
     }
 }

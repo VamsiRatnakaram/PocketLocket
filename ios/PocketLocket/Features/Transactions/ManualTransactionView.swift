@@ -71,7 +71,7 @@ struct ManualTransactionView: View {
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
-            .presentationCornerRadius(30)
+            .platformPresentationCornerRadius(30)
         }
     }
 

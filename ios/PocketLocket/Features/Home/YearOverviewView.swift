@@ -136,7 +136,10 @@ struct YearOverviewView: View {
             Button {
                 withAnimation(reduceMotion ? nil : .snappy) { yearOffset -= 1 }
             } label: {
-                Image(systemName: "chevron.left").font(.headline).frame(width: 44, height: 44)
+                Image(systemName: "chevron.left")
+                    .font(.headline)
+                    .frame(width: 44, height: 44)
+                    .liquidGlassCircleControl()
             }
             .disabled(year <= earliestYear)
             .opacity(year <= earliestYear ? 0.25 : 1)
@@ -148,7 +151,10 @@ struct YearOverviewView: View {
             Button {
                 withAnimation(reduceMotion ? nil : .snappy) { yearOffset += 1 }
             } label: {
-                Image(systemName: "chevron.right").font(.headline).frame(width: 44, height: 44)
+                Image(systemName: "chevron.right")
+                    .font(.headline)
+                    .frame(width: 44, height: 44)
+                    .liquidGlassCircleControl()
             }
             .disabled(yearOffset >= 0)
             .opacity(yearOffset >= 0 ? 0.25 : 1)

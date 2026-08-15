@@ -40,7 +40,7 @@ struct TransactionDetailView: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationCornerRadius(30)
+        .platformPresentationCornerRadius(30)
         .onDisappear { persistSelection() }
     }
 
@@ -72,9 +72,10 @@ struct TransactionDetailView: View {
                     Button { choose(category) } label: {
                         CategoryChip(category: category, isSelected: category == selected)
                     }
-                    .buttonStyle(PressableStyle())
+                    .liquidGlassPressableButtonStyle()
                 }
             }
+            .liquidGlassContainer(spacing: 8)
             Text("Choosing a category teaches the app to auto-categorize “\(matchKey)” this way from now on.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

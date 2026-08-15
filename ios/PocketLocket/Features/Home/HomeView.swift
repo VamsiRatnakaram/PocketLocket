@@ -261,6 +261,9 @@ struct HomeView: View {
             }
             .disabled(isSyncing)
         }
+        if #available(iOS 26.0, *) {
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape")
@@ -284,6 +287,7 @@ struct HomeView: View {
                 Image(systemName: "chevron.left")
                     .font(.headline)
                     .frame(width: 44, height: 44)
+                    .liquidGlassCircleControl()
             }
             .disabled(monthOffset <= minMonthOffset)
             .opacity(monthOffset <= minMonthOffset ? 0.25 : 1)
@@ -296,6 +300,7 @@ struct HomeView: View {
                 Image(systemName: "chevron.right")
                     .font(.headline)
                     .frame(width: 44, height: 44)
+                    .liquidGlassCircleControl()
             }
             .disabled(monthOffset >= 0)
             .opacity(monthOffset >= 0 ? 0.25 : 1)

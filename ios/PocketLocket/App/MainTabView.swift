@@ -25,6 +25,7 @@ struct MainTabView: View {
                 .tag(Tab.save)
                 .tabItem { Label("Save", systemImage: "sparkles") }
         }
+        .liquidGlassTabBarMinimizeOnScroll()
         .task {
             try? await SyncService.shared.refresh(context: context)
         }
