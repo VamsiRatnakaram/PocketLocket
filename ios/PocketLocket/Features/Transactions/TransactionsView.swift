@@ -27,7 +27,7 @@ struct TransactionsView: View {
     @State private var rowsCache = DerivedCache<RowsKey, [TransactionListBuilder.Row]>()
 
     enum TxnType: String, CaseIterable, Identifiable {
-        case all, expenses, income
+        case all, expenses, returns, income
         var id: String { rawValue }
         var label: String { rawValue.capitalized }
     }

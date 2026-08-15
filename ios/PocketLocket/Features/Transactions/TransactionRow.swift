@@ -23,6 +23,9 @@ struct TransactionRow: View {
                     if txn.pending {
                         Text("• Pending").foregroundStyle(.orange)
                     }
+                    if TransactionListBuilder.classify(txn, category: category) == .returns {
+                        Text("• Return").foregroundStyle(.green)
+                    }
                     // The spend ring silently drops non-spending categories.
                     // Without a marker there's no way to tell an excluded
                     // transaction from one the app simply never imported.
