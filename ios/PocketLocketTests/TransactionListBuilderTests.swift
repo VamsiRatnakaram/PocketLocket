@@ -77,6 +77,30 @@ final class TransactionListBuilderTests: XCTestCase {
         XCTAssertEqual(TransactionListBuilder.classify(deposit, category: .other), .income)
     }
 
+    func testPeerToPeerInflowIsNotAReturnWhenGivenASpendingCategory() {
+        for name in ["ZELLE PAYMENT FROM ALEX", "VENMO PAYMENT JORDAN"] {
+            let payment = txn(name, name: name, amount: -40, day: 3)
+            XCTAssertEqual(
+                TransactionListBuilder.classify(payment, category: .food),
+                .income,
+                name
+            )
+        }
+    }
+
+    func testExplicitPeerToPeerRefundStillCountsAsReturn() {
+        let refund = txn(
+            "venmo-refund",
+            name: "VENMO REFUND FROM MERCHANT",
+            amount: -40,
+            day: 3
+        )
+        XCTAssertEqual(
+            TransactionListBuilder.classify(refund, category: .food),
+            .returns
+        )
+    }
+
     func testAccountFilter() {
         XCTAssertEqual(rows(.init(accountId: "savings")).map(\.id), ["2"])
     }
