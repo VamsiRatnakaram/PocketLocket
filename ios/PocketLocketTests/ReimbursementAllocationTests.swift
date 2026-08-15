@@ -104,6 +104,32 @@ final class ReimbursementAllocationTests: XCTestCase {
         XCTAssertEqual(candidates.map(\.id), [dinner.id])
     }
 
+    func testExpenseCanChooseAvailableIncomingReimbursements() {
+        let expense = transaction(id: "dinner", amount: 100)
+        let newestSource = transaction(id: "venmo-new", amount: -60)
+        let olderSource = transaction(id: "venmo-old", amount: -50)
+        olderSource.date = newestSource.date.addingTimeInterval(-86_400)
+        let matchedTransfer = transaction(id: "card-payment", amount: -100)
+        matchedTransfer.transferPairId = "pair-1"
+        let wrongCurrency = transaction(id: "euros", amount: -50, currency: "EUR")
+        let index = ReimbursementAllocationIndex([
+            ReimbursementAllocationSpec(
+                id: "a1",
+                sourceTransactionID: olderSource.id,
+                expenseTransactionID: "another-expense",
+                amount: 50
+            )
+        ])
+
+        let candidates = ReimbursementSourceCandidateBuilder.candidates(
+            for: expense,
+            in: [expense, olderSource, newestSource, matchedTransfer, wrongCurrency],
+            index: index
+        )
+
+        XCTAssertEqual(candidates.map(\.id), [newestSource.id])
+    }
+
     func testAllocationRoundsToCents() throws {
         let context = try context()
         let source = transaction(id: "venmo", amount: -50)

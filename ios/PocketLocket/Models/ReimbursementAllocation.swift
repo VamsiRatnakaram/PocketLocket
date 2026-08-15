@@ -123,6 +123,27 @@ enum ReimbursementCandidateBuilder {
     }
 }
 
+enum ReimbursementSourceCandidateBuilder {
+    static func candidates(
+        for expense: TransactionRecord,
+        in transactions: [TransactionRecord],
+        index: ReimbursementAllocationIndex
+    ) -> [TransactionRecord] {
+        guard expense.amount > 0 else { return [] }
+        return transactions.filter { transaction in
+            transaction.id != expense.id
+                && transaction.amount < 0
+                && transaction.transferPairId == nil
+                && transaction.isoCurrencyCode.caseInsensitiveCompare(expense.isoCurrencyCode) == .orderedSame
+                && index.remainingSourceAmount(
+                    transactionID: transaction.id,
+                    originalAmount: transaction.amount
+                ) > 0.005
+        }
+        .sorted { $0.date > $1.date }
+    }
+}
+
 @MainActor
 enum ReimbursementAllocationService {
     enum AllocationError: LocalizedError {

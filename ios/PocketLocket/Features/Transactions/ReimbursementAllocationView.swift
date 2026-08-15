@@ -2,7 +2,23 @@ import SwiftData
 import SwiftUI
 
 struct ReimbursementAllocationView: View {
-    let source: TransactionRecord
+    private enum Direction {
+        case fromSource
+        case toExpense
+    }
+
+    private let transaction: TransactionRecord
+    private let direction: Direction
+
+    init(source: TransactionRecord) {
+        transaction = source
+        direction = .fromSource
+    }
+
+    init(expense: TransactionRecord) {
+        transaction = expense
+        direction = .toExpense
+    }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -12,7 +28,8 @@ struct ReimbursementAllocationView: View {
     private var allocations: [ReimbursementAllocation]
 
     @State private var search = ""
-    @State private var selectedExpense: TransactionRecord?
+    @State private var selectedCounterparty: TransactionRecord?
+    @State private var selectedLinkedTransaction: TransactionRecord?
     @State private var amountText = ""
     @State private var errorMessage: String?
 
@@ -20,26 +37,56 @@ struct ReimbursementAllocationView: View {
         ReimbursementAllocationIndex(allocations)
     }
 
-    private var sourceAllocations: [ReimbursementAllocation] {
-        allocations.filter { $0.sourceTransactionID == source.id }
+    private var focusedAllocations: [ReimbursementAllocation] {
+        switch direction {
+        case .fromSource:
+            allocations.filter { $0.sourceTransactionID == transaction.id }
+        case .toExpense:
+            allocations.filter { $0.expenseTransactionID == transaction.id }
+        }
     }
 
     private var allocatedAmount: Double {
-        index.allocatedFromSource(source.id)
+        switch direction {
+        case .fromSource: index.allocatedFromSource(transaction.id)
+        case .toExpense: index.allocatedToExpense(transaction.id)
+        }
     }
 
     private var remainingAmount: Double {
-        index.remainingSourceAmount(transactionID: source.id, originalAmount: source.amount)
+        switch direction {
+        case .fromSource:
+            index.remainingSourceAmount(
+                transactionID: transaction.id,
+                originalAmount: transaction.amount
+            )
+        case .toExpense:
+            index.remainingExpenseAmount(
+                transactionID: transaction.id,
+                originalAmount: transaction.amount
+            )
+        }
     }
 
     private var candidates: [TransactionRecord] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return ReimbursementCandidateBuilder.candidates(
-            for: source,
-            in: transactions,
-            index: index,
-            categoryFor: { $0.resolvedCategory(using: rules) }
-        ).filter {
+        let unfiltered: [TransactionRecord]
+        switch direction {
+        case .fromSource:
+            unfiltered = ReimbursementCandidateBuilder.candidates(
+                for: transaction,
+                in: transactions,
+                index: index,
+                categoryFor: { $0.resolvedCategory(using: rules) }
+            )
+        case .toExpense:
+            unfiltered = ReimbursementSourceCandidateBuilder.candidates(
+                for: transaction,
+                in: transactions,
+                index: index
+            )
+        }
+        return unfiltered.filter {
             query.isEmpty
                 || $0.title.localizedCaseInsensitiveContains(query)
                 || $0.name.localizedCaseInsensitiveContains(query)
@@ -55,10 +102,14 @@ struct ReimbursementAllocationView: View {
                     Text("Applied amounts reduce spending on each purchase’s original date and category. The bank transactions stay unchanged.")
                 }
 
-                if !sourceAllocations.isEmpty {
-                    Section("Applied to") {
-                        ForEach(sourceAllocations) { allocation in
-                            allocationRow(allocation)
+                if !focusedAllocations.isEmpty {
+                    Section(direction == .fromSource ? "Applied to" : "Reimbursements") {
+                        ForEach(focusedAllocations) { allocation in
+                            Button { openLinkedTransaction(for: allocation) } label: {
+                                allocationRow(allocation)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(linkedTransaction(for: allocation) == nil)
                                 .swipeActions {
                                     Button(role: .destructive) {
                                         remove(allocation)
@@ -70,32 +121,37 @@ struct ReimbursementAllocationView: View {
                     }
                 }
 
-                Section("Choose purchases") {
+                Section(direction == .fromSource ? "Choose purchases" : "Choose reimbursements") {
                     if remainingAmount <= 0.005 {
                         ContentUnavailableView(
-                            "Fully allocated",
+                            direction == .fromSource ? "Fully allocated" : "Fully reimbursed",
                             systemImage: "checkmark.circle",
                             description: Text("Remove an allocation to assign this money elsewhere.")
                         )
                     } else if candidates.isEmpty {
                         ContentUnavailableView(
-                            "No matching purchases",
-                            systemImage: "receipt",
-                            description: Text("Try another search or check the transaction currency and category.")
+                            direction == .fromSource ? "No matching purchases" : "No available reimbursements",
+                            systemImage: direction == .fromSource ? "receipt" : "person.2",
+                            description: Text(direction == .fromSource
+                                ? "Try another search or check the transaction currency and category."
+                                : "Incoming payments appear here when they have money left to apply.")
                         )
                     } else {
-                        ForEach(candidates) { expense in
-                            Button { prepareAllocation(to: expense) } label: {
-                                candidateRow(expense)
+                        ForEach(candidates) { candidate in
+                            Button { prepareAllocation(with: candidate) } label: {
+                                candidateRow(candidate)
                             }
                             .buttonStyle(.plain)
                         }
                     }
                 }
             }
-            .navigationTitle("Apply Reimbursement")
+            .navigationTitle(direction == .fromSource ? "Apply Reimbursement" : "Assign Reimbursement")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $search, prompt: "Search purchases")
+            .searchable(
+                text: $search,
+                prompt: direction == .fromSource ? "Search purchases" : "Search incoming payments"
+            )
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -104,11 +160,11 @@ struct ReimbursementAllocationView: View {
             .alert("Amount to Apply", isPresented: allocationAlertIsPresented) {
                 TextField("Amount", text: $amountText)
                     .keyboardType(.decimalPad)
-                Button("Cancel", role: .cancel) { selectedExpense = nil }
+                Button("Cancel", role: .cancel) { selectedCounterparty = nil }
                 Button("Apply") { applyPreparedAllocation() }
             } message: {
-                if let selectedExpense {
-                    Text("Apply part of \(source.title) to \(selectedExpense.title).")
+                if let selectedCounterparty {
+                    Text(allocationPrompt(for: selectedCounterparty))
                 }
             }
             .alert("Couldn’t Apply Reimbursement", isPresented: errorAlertIsPresented) {
@@ -116,17 +172,30 @@ struct ReimbursementAllocationView: View {
             } message: {
                 Text(errorMessage ?? "Please try again.")
             }
+            .sheet(item: $selectedLinkedTransaction) { linked in
+                TransactionDetailView(
+                    txn: linked,
+                    currentCategory: linked.resolvedCategory(using: rules)
+                )
+            }
         }
     }
 
     private var summary: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(source.title)
+            Text(transaction.title)
                 .font(.headline)
             HStack {
-                metric("Received", abs(source.amount))
-                metric("Applied", allocatedAmount)
-                metric("Remaining", remainingAmount)
+                switch direction {
+                case .fromSource:
+                    metric("Received", abs(transaction.amount))
+                    metric("Applied", allocatedAmount)
+                    metric("Remaining", remainingAmount)
+                case .toExpense:
+                    metric("Purchase", transaction.amount)
+                    metric("Reimbursed", allocatedAmount)
+                    metric("Net", remainingAmount)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -134,7 +203,7 @@ struct ReimbursementAllocationView: View {
 
     private func metric(_ title: String, _ amount: Double) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(CurrencyFormatter.string(amount, code: source.isoCurrencyCode))
+            Text(CurrencyFormatter.string(amount, code: transaction.isoCurrencyCode))
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
             Text(title)
@@ -145,26 +214,41 @@ struct ReimbursementAllocationView: View {
     }
 
     private func allocationRow(_ allocation: ReimbursementAllocation) -> some View {
-        let expense = transactions.first { $0.id == allocation.expenseTransactionID }
+        let linked = linkedTransaction(for: allocation)
         return HStack(spacing: 12) {
             Image(systemName: "arrow.turn.down.right")
                 .foregroundStyle(.green)
             VStack(alignment: .leading, spacing: 2) {
-                Text(expense?.title ?? "Missing purchase")
-                if let expense {
-                    Text(expense.date, format: .dateTime.month().day().year())
+                Text(linked?.title ?? "Missing transaction")
+                if let linked {
+                    Text(linked.date, format: .dateTime.month().day().year())
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             Spacer()
-            Text(CurrencyFormatter.string(allocation.amount, code: source.isoCurrencyCode))
+            Text(CurrencyFormatter.string(allocation.amount, code: transaction.isoCurrencyCode))
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
+            if linked != nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 
-    private func candidateRow(_ expense: TransactionRecord) -> some View {
+    @ViewBuilder
+    private func candidateRow(_ candidate: TransactionRecord) -> some View {
+        switch direction {
+        case .fromSource:
+            expenseCandidateRow(candidate)
+        case .toExpense:
+            sourceCandidateRow(candidate)
+        }
+    }
+
+    private func expenseCandidateRow(_ expense: TransactionRecord) -> some View {
         let category = expense.resolvedCategory(using: rules)
         let remaining = index.remainingExpenseAmount(
             transactionID: expense.id,
@@ -199,10 +283,44 @@ struct ReimbursementAllocationView: View {
         .contentShape(Rectangle())
     }
 
+    private func sourceCandidateRow(_ source: TransactionRecord) -> some View {
+        let remaining = index.remainingSourceAmount(
+            transactionID: source.id,
+            originalAmount: source.amount
+        )
+        return HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.18))
+                    .frame(width: 40, height: 40)
+                Image(systemName: "person.2.fill")
+                    .foregroundStyle(.green)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source.title).lineLimit(1)
+                Text(source.date, format: .dateTime.month().day().year())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(CurrencyFormatter.string(abs(source.amount), code: source.isoCurrencyCode))
+                    .monospacedDigit()
+                if remaining < abs(source.amount) - 0.005 {
+                    Text("\(CurrencyFormatter.string(remaining, code: source.isoCurrencyCode)) left")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
     private var allocationAlertIsPresented: Binding<Bool> {
         Binding(
-            get: { selectedExpense != nil },
-            set: { if !$0 { selectedExpense = nil } }
+            get: { selectedCounterparty != nil },
+            set: { if !$0 { selectedCounterparty = nil } }
         )
     }
 
@@ -213,27 +331,36 @@ struct ReimbursementAllocationView: View {
         )
     }
 
-    private func prepareAllocation(to expense: TransactionRecord) {
-        let maximum = min(
-            remainingAmount,
-            index.remainingExpenseAmount(
-                transactionID: expense.id,
-                originalAmount: expense.amount
+    private func prepareAllocation(with counterparty: TransactionRecord) {
+        let counterpartyRemaining: Double
+        switch direction {
+        case .fromSource:
+            counterpartyRemaining = index.remainingExpenseAmount(
+                transactionID: counterparty.id,
+                originalAmount: counterparty.amount
             )
-        )
+        case .toExpense:
+            counterpartyRemaining = index.remainingSourceAmount(
+                transactionID: counterparty.id,
+                originalAmount: counterparty.amount
+            )
+        }
+        let maximum = min(remainingAmount, counterpartyRemaining)
         amountText = String(format: "%.2f", maximum)
-        selectedExpense = expense
+        selectedCounterparty = counterparty
     }
 
     private func applyPreparedAllocation() {
-        guard let expense = selectedExpense else { return }
-        defer { selectedExpense = nil }
+        guard let counterparty = selectedCounterparty else { return }
+        defer { selectedCounterparty = nil }
         let normalized = amountText.replacingOccurrences(of: ",", with: "")
         guard let amount = Double(normalized) else {
             errorMessage = "Enter a valid amount."
             return
         }
         do {
+            let source = direction == .fromSource ? transaction : counterparty
+            let expense = direction == .fromSource ? counterparty : transaction
             try ReimbursementAllocationService.allocate(
                 amount: amount,
                 from: source,
@@ -244,6 +371,25 @@ struct ReimbursementAllocationView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func allocationPrompt(for counterparty: TransactionRecord) -> String {
+        let source = direction == .fromSource ? transaction : counterparty
+        let expense = direction == .fromSource ? counterparty : transaction
+        return "Apply part of \(source.title) to \(expense.title)."
+    }
+
+    private func linkedTransaction(
+        for allocation: ReimbursementAllocation
+    ) -> TransactionRecord? {
+        let linkedID = direction == .fromSource
+            ? allocation.expenseTransactionID
+            : allocation.sourceTransactionID
+        return transactions.first { $0.id == linkedID }
+    }
+
+    private func openLinkedTransaction(for allocation: ReimbursementAllocation) {
+        selectedLinkedTransaction = linkedTransaction(for: allocation)
     }
 
     private func remove(_ allocation: ReimbursementAllocation) {

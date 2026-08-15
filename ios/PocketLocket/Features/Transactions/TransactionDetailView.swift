@@ -159,7 +159,11 @@ struct TransactionDetailView: View {
             }
         }
         .sheet(isPresented: $showReimbursementAllocation) {
-            ReimbursementAllocationView(source: txn)
+            if txn.amount < 0 {
+                ReimbursementAllocationView(source: txn)
+            } else {
+                ReimbursementAllocationView(expense: txn)
+            }
         }
     }
 
@@ -266,20 +270,32 @@ struct TransactionDetailView: View {
             .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
         } else if txn.amount > 0 {
             let reimbursed = index.allocatedToExpense(txn.id)
-            if reimbursed > 0.005 {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "person.2.fill")
-                        .foregroundStyle(.green)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Partly reimbursed")
-                            .font(.subheadline.weight(.semibold))
-                        Text("\(CurrencyFormatter.string(reimbursed)) paid back • \(CurrencyFormatter.string(max(0, txn.amount - reimbursed))) net spending")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            if selected.isSpending || reimbursed > 0.005 {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(
+                        reimbursed > 0.005
+                            ? (reimbursed >= txn.amount - 0.005 ? "Fully reimbursed" : "Partly reimbursed")
+                            : "Reimbursement",
+                        systemImage: "person.2.fill"
+                    )
+                    .font(.headline)
+                    .foregroundStyle(.green)
+                    Text(reimbursed > 0.005
+                        ? "\(CurrencyFormatter.string(reimbursed)) paid back • \(CurrencyFormatter.string(max(0, txn.amount - reimbursed))) net spending"
+                        : "Assign incoming payments from friends directly to this purchase.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button { showReimbursementAllocation = true } label: {
+                        Label(
+                            reimbursed > 0.005 ? "Review Reimbursements" : "Assign Reimbursement",
+                            systemImage: "arrow.triangle.branch"
+                        )
+                        .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.borderedProminent)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
+                .padding(16)
                 .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
             }
         }
