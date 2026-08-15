@@ -10,23 +10,26 @@ struct AccountCard: View {
                     .fill(Color.accentColor.opacity(0.15))
                     .frame(width: 44, height: 44)
                 Image(systemName: iconName)
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(Color.accentColor)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.displayName)
                     .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .layoutPriority(1)
 
             Spacer()
 
             Text(CurrencyFormatter.string(account.currentBalance, code: account.isoCurrencyCode))
                 .font(.callout.weight(.semibold))
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .padding(.vertical, 4)
     }
