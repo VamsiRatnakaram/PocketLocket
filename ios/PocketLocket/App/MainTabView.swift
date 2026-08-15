@@ -8,6 +8,44 @@ struct MainTabView: View {
     enum Tab: Hashable { case home, transactions, accounts, analysis }
 
     var body: some View {
+        tabs
+            .liquidGlassTabBarMinimizeOnScroll()
+            .task {
+                // Backfill first so existing history (and CSV imports, which
+                // never touch the sync path) gets paired even when there's no
+                // SimpleFIN connection or the refresh below fails.
+                try? TransferMatchService.recompute(in: context)
+                try? await SyncService.shared.refresh(context: context)
+            }
+    }
+
+    @ViewBuilder
+    private var tabs: some View {
+        if #available(iOS 18.0, *) {
+            TabView(selection: $selection) {
+                SwiftUI.Tab("Home", systemImage: "chart.pie.fill", value: Tab.home) {
+                    HomeView()
+                }
+                SwiftUI.Tab("Transactions", systemImage: "list.bullet", value: Tab.transactions) {
+                    TransactionsView()
+                }
+                SwiftUI.Tab("Accounts", systemImage: "building.columns.fill", value: Tab.accounts) {
+                    AccountsView()
+                }
+                SwiftUI.Tab(
+                    "Analysis",
+                    systemImage: "chart.line.uptrend.xyaxis",
+                    value: Tab.analysis
+                ) {
+                    AnalysisRootView()
+                }
+            }
+        } else {
+            legacyTabs
+        }
+    }
+
+    private var legacyTabs: some View {
         TabView(selection: $selection) {
             HomeView()
                 .tag(Tab.home)
@@ -24,14 +62,6 @@ struct MainTabView: View {
             AnalysisRootView()
                 .tag(Tab.analysis)
                 .tabItem { Label("Analysis", systemImage: "chart.line.uptrend.xyaxis") }
-        }
-        .liquidGlassTabBarMinimizeOnScroll()
-        .task {
-            // Backfill first so existing history (and CSV imports, which never
-            // touch the sync path) gets paired even when there's no SimpleFIN
-            // connection or the refresh below fails.
-            try? TransferMatchService.recompute(in: context)
-            try? await SyncService.shared.refresh(context: context)
         }
     }
 
