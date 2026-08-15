@@ -73,7 +73,13 @@ enum MerchantHeuristics {
         ("garage", .transport), ("toll", .transport), ("fastrak", .transport), ("e-zpass", .transport),
         ("ezpass", .transport), ("mta", .transport), ("bart", .transport), ("caltrain", .transport),
         ("transit", .transport), ("autozone", .transport), ("o'reilly", .transport),
+        ("wsf", .transport), ("wsdot", .transport), ("wa state ferries", .transport),
+        ("washington state ferries", .transport),
         ("jiffy lube", .transport), ("car wash", .transport),
+        ("aaa", .transport),
+        ("citgo", .transport), ("phillips 66", .transport),
+        ("conoco", .transport), ("costco gas", .transport),
+        ("roadside assistance", .transport), ("towing", .transport),
 
         // Shared scooters and bikes. "lime" and "spin" are also ordinary
         // words, so the restaurant names that contain them are listed first —
@@ -110,11 +116,19 @@ enum MerchantHeuristics {
         ("market basket", .groceries), ("shoprite", .groceries), ("hannaford", .groceries),
         ("piggly wiggly", .groceries), ("stater bros", .groceries), ("smart final", .groceries),
         ("win dixie", .groceries), ("grocery", .groceries),
-        ("restaurant", .food), ("grill", .food), ("bistro", .food), ("bar", .food),
+        ("restaurant", .food), ("grill", .food), ("grille", .food), ("bistro", .food), ("bar", .food),
         ("pub", .food), ("tavern", .food), ("eatery", .food), ("kitchen", .food),
         ("cantina", .food), ("diner", .food), ("steakhouse", .food), ("bbq", .food),
         ("brewery", .food), ("coffee", .food), ("cafe", .food), ("pizzeria", .food),
-        ("sushi", .food), ("taqueria", .food), ("bakery", .food),
+        ("sushi", .food), ("taqueria", .food), ("bakery", .food), ("pizza", .food),
+        ("deli", .food), ("burrito", .food), ("taco", .food), ("poke", .food),
+        ("boba", .food), ("bubble tea", .food), ("teahouse", .food), ("tea house", .food),
+        ("chophouse", .food), ("seafood", .food), ("buffet", .food), ("smokehouse", .food),
+        ("creamery", .food), ("donut", .food), ("doughnut", .food), ("bagel", .food),
+        ("sandwich", .food), ("hibachi", .food), ("teriyaki", .food), ("curry", .food),
+        ("izakaya", .food), ("gastropub", .food), ("brasserie", .food),
+        ("trattoria", .food), ("espresso", .food), ("noodle", .food), ("dumpling", .food),
+        ("burger", .food),
 
         // 8) Shopping / retail.
         ("amazon", .shopping), ("target", .shopping), ("walmart", .shopping), ("costco", .shopping),
@@ -130,6 +144,7 @@ enum MerchantHeuristics {
         ("cvs", .health), ("walgreens", .health), ("pharmacy", .health), ("clinic", .health),
         ("dental", .health), ("dentist", .health), ("kaiser", .health), ("labcorp", .health),
         ("hospital", .health), ("optometry", .health), ("lenscrafters", .health), ("gnc", .health),
+        ("surgeon", .health), ("surgeons", .health), ("surgery", .health), ("surgical", .health),
 
         // 10) Services / subscriptions.
         ("equinox", .services), ("gym", .services), ("adobe", .services), ("dropbox", .services),
@@ -141,16 +156,29 @@ enum MerchantHeuristics {
         ("geico", .services), ("state farm", .services), ("progressive", .services),
         ("allstate", .services), ("insurance", .services), ("storage", .services),
 
-        // 11) Housing / utilities.
-        ("comcast", .housing), ("xfinity", .housing), ("verizon", .housing), ("t-mobile", .housing),
-        ("at&t", .housing), ("spectrum", .housing), ("centurylink", .housing), ("dish network", .housing),
-        ("directv", .housing), ("pg&e", .housing), ("coned", .housing), ("electric", .housing),
-        ("utility", .housing), ("water bill", .housing), ("sewer", .housing), ("internet", .housing),
+        // 11) Housing / rent.
+        ("budget rent", .travel), ("dollar rent", .travel), ("alamo rent", .travel),
+        ("bilt rent", .housing),
         ("rent", .housing), ("mortgage", .housing), ("apartment", .housing),
+
+        // 11b) Utilities (electric/gas/water/internet/wifi) — folded into
+        // Housing & Bills alongside rent/mortgage.
+        ("comcast", .housing), ("xfinity", .housing), ("verizon", .housing),
+        ("t-mobile", .housing), ("tmobile", .housing), ("att", .housing), ("spectrum", .housing),
+        ("centurylink", .housing), ("dish network", .housing), ("directv", .housing),
+        ("pg&e", .housing), ("coned", .housing), ("electric", .housing),
+        ("utility", .housing), ("utilities", .housing),
+        ("sewer", .housing), ("internet", .housing), ("wifi", .housing),
+        ("astound", .housing), ("webpass", .housing), ("google webpass", .housing),
+        ("google fiber", .housing),
+        ("seattle city light", .housing), ("puget sound energy", .housing),
 
         // 12) Fees & loans.
         ("sofi", .fees), ("navient", .fees), ("nelnet", .fees), ("affirm", .fees),
         ("klarna", .fees), ("afterpay", .fees), ("auto loan", .fees), ("bank fee", .fees),
+
+        // 13) Chase-branded travel portal / points redemptions.
+        ("chase travel", .travel),
     ]
 
     // High-confidence terms that are intentionally considered after the legacy
@@ -205,8 +233,7 @@ enum MerchantHeuristics {
         ("ritz carlton", .travel), ("westin", .travel), ("courtyard", .travel),
         ("hampton inn", .travel), ("residence inn", .travel), ("motel 6", .travel),
         ("la quinta", .travel), ("wyndham", .travel), ("carnival cruise", .travel),
-        ("norwegian cruise", .travel), ("budget rent", .travel), ("dollar rent", .travel),
-        ("thrifty car", .travel), ("alamo rent", .travel), ("sixt", .travel),
+        ("norwegian cruise", .travel), ("thrifty car", .travel), ("sixt", .travel),
         ("lodging", .travel), ("vacation rental", .travel), ("rental car", .travel),
 
         // Entertainment and health.
@@ -250,6 +277,31 @@ enum MerchantHeuristics {
         ["debit", "card", "purchase"], ["card", "purchase"], ["checkcard"], ["pos"],
         ["sq"], ["tst"], ["paypal"], ["pp"], ["stripe"], ["clover"],
     ]
+
+    /// Brands that only ever appear as a processor descriptor of the form
+    /// `BRAND*<reference>`, where the reference is a per-ride or per-order id.
+    ///
+    /// Lime bills as LIME*RIDE, LIME*3XKQ2, LIME*ABC123 — so a keyword entry
+    /// like "lime ride" catches exactly one variant and misses every other one.
+    ///
+    /// Matching the bare token instead would be worse, not better: "lime" also
+    /// shows up in restaurant names (LIME LEAF THAI), which would then be
+    /// categorized as transport. Keying on the `*` form is what separates the
+    /// two, so this is checked against the raw descriptor before tokenizing
+    /// drops the punctuation.
+    private static let starredBrands: [String: SpendCategory] = [
+        "lime": .transport
+    ]
+
+    /// The token immediately before the first `*`, matched against the brands
+    /// above. Returns nil for processors like `PAYPAL *NETFLIX.COM`, which are
+    /// intentionally not listed: the brand there is the payment rail, not the
+    /// merchant, so resolution should fall through to the keyword table.
+    static func starredBrandCategory(in descriptor: String) -> SpendCategory? {
+        guard let star = descriptor.firstIndex(of: "*") else { return nil }
+        guard let brand = tokens(in: String(descriptor[descriptor.startIndex..<star])).last else { return nil }
+        return starredBrands[brand]
+    }
 
     private static let processorFallbacks: [(tokens: [String], category: SpendCategory)] = [
         // Toast is dedicated to restaurants, unlike Square, PayPal, and Stripe.
@@ -361,6 +413,7 @@ enum MerchantHeuristics {
     /// for the Analysis tab while the main thread may be resolving categories
     /// for other views, so the memo table must be locked.
     static func category(for haystack: String) -> SpendCategory? {
+        if let starred = starredBrandCategory(in: haystack) { return starred }
         let cacheKey = normalized(haystack)
         cacheLock.lock()
         let cached = cache[cacheKey]
