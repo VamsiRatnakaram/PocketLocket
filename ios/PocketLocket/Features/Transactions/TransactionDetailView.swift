@@ -1,33 +1,10 @@
 import SwiftUI
 import SwiftData
 
-private struct TransactionDetailScrollOffsetKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 private struct TransactionAssignmentPreparationKey: Equatable {
     let dataHash: Int
     let rulesHash: Int
     let descriptor: String
-}
-
-enum TransactionSheetDismissalPolicy {
-    static let topTolerance: CGFloat = 2
-    static let requiredPullPastTop: CGFloat = 120
-
-    static func shouldDismiss(
-        startingScrollDepth: CGFloat,
-        currentScrollDepth: CGFloat,
-        translation: CGFloat
-    ) -> Bool {
-        guard currentScrollDepth <= topTolerance else { return false }
-        let pullPastTop = translation - max(0, startingScrollDepth)
-        return pullPastTop >= requiredPullPastTop
-    }
 }
 
 /// Tap a transaction to recategorize it. Choosing a category teaches the app a
@@ -39,6 +16,7 @@ struct TransactionDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Query private var rules: [CategoryRule]
     @Query private var groupingRules: [MerchantGroupingRule]
     @Query private var allTransactions: [TransactionRecord]
@@ -57,9 +35,6 @@ struct TransactionDetailView: View {
     @State private var preparedInputKey: TransactionAssignmentPreparationKey?
     @State private var didPersistBroadRule = false
     @State private var pendingRuleStateToRestore: CategoryAssignment.PreparedRuleState?
-    @State private var scrollDepth: CGFloat = 0
-    @State private var dragStartScrollDepth: CGFloat?
-    @State private var triggeredDragDismissal = false
     /// What the scope picker started on, so dismissing an untouched sheet
     /// writes nothing.
     private let initialScope: CategoryAssignment.Scope
@@ -90,31 +65,24 @@ struct TransactionDetailView: View {
         _persistedScope = State(initialValue: defaultScope)
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 12)]
+    private var columns: [GridItem] {
+        let count = dynamicTypeSize.isAccessibilitySize ? 2 : 4
+        return Array(
+            repeating: GridItem(.flexible(), spacing: 8),
+            count: count
+        )
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 16) {
                     header
                     transferMatchNote
                     categoryGrid
                 }
-                .padding()
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: TransactionDetailScrollOffsetKey.self,
-                            value: proxy.frame(in: .named("transaction-detail-scroll")).minY
-                        )
-                    }
-                }
+                .padding(16)
             }
-            .coordinateSpace(name: "transaction-detail-scroll")
-            .onPreferenceChange(TransactionDetailScrollOffsetKey.self) {
-                scrollDepth = max(0, -$0)
-            }
-            .simultaneousGesture(continuousDismissGesture)
             .navigationTitle("Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -141,7 +109,6 @@ struct TransactionDetailView: View {
             }
         }
         .presentationDetents([.large])
-        .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
         .platformPresentationCornerRadius(30)
         .onDisappear { persistBeforeDismissal() }
@@ -158,23 +125,32 @@ struct TransactionDetailView: View {
     }
 
     private var header: some View {
-        VStack(spacing: 10) {
+        HStack(spacing: 12) {
             ZStack {
-                Circle().fill(selected.tint.opacity(0.18)).frame(width: 68, height: 68)
+                Circle()
+                    .fill(selected.tint.opacity(0.18))
+                    .frame(width: 52, height: 52)
                 Image(systemName: selected.symbol)
-                    .font(.title)
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(selected.tint)
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce, value: selected)
             }
-            Text(txn.title).font(.title3.bold())
-            Text(txn.date, format: .dateTime.month().day().year())
-                .font(.subheadline).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(txn.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                Text(txn.date, format: .dateTime.month().day().year())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
             Text(amountText)
-                .font(.title2.weight(.semibold))
+                .font(.headline)
                 .monospacedDigit()
                 .foregroundStyle(txn.amount > 0 ? Color.primary : Color.green)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.snappy(duration: 0.16), value: selected)
     }
 
@@ -232,9 +208,9 @@ struct TransactionDetailView: View {
     }
 
     private var categoryGrid: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Category").font(.headline)
-            LazyVGrid(columns: columns, spacing: 12) {
+            LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(SpendCategory.allCases) { category in
                     Button { choose(category) } label: {
                         CategoryChip(category: category, isSelected: category == selected)
@@ -325,34 +301,6 @@ struct TransactionDetailView: View {
         selected = category
         feedback += 1
         persistSelection()
-    }
-
-    /// SwiftUI doesn't transfer a drag to the sheet after that same drag reaches
-    /// the top. Dismiss only after the content is actually at the top and the
-    /// user has deliberately pulled another 120 points.
-    private var continuousDismissGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                if dragStartScrollDepth == nil {
-                    dragStartScrollDepth = scrollDepth
-                    triggeredDragDismissal = false
-                }
-                guard !triggeredDragDismissal, value.translation.height > 0 else { return }
-
-                let startDepth = dragStartScrollDepth ?? scrollDepth
-                guard TransactionSheetDismissalPolicy.shouldDismiss(
-                    startingScrollDepth: startDepth,
-                    currentScrollDepth: scrollDepth,
-                    translation: value.translation.height
-                ) else { return }
-
-                triggeredDragDismissal = true
-                dismiss()
-            }
-            .onEnded { _ in
-                dragStartScrollDepth = nil
-                triggeredDragDismissal = false
-            }
     }
 
     /// Calculated only when requested. Building every merchant group requires a
