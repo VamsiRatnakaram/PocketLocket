@@ -9,7 +9,7 @@ final class AnalysisSnapshotCoordinatorTests: XCTestCase {
 
     private func key(_ dataHash: Int, rules: Int = 1) -> AnalysisSnapshotCache.InputsKey {
         AnalysisSnapshotCache.InputsKey(
-            dataHash: dataHash, rulesHash: rules, excludedAccountsRaw: "", range: .all
+            dataHash: dataHash, rulesHash: rules, excludedAccountsRaw: ""
         )
     }
 
@@ -181,6 +181,7 @@ final class AnalysisSnapshotCoordinatorTests: XCTestCase {
         let engine = AnalysisComputeEngine()
         let request = AnalysisComputeRequest(
             key: key(7),
+            window: nil,
             categoryFilter: nil,
             transactions: [
                 AnalysisTransaction(name: "ACME WIDGETS", merchantName: nil, amount: 25, date: date(1), categoryPrimary: nil),
@@ -201,6 +202,7 @@ final class AnalysisSnapshotCoordinatorTests: XCTestCase {
         let engine = AnalysisComputeEngine()
         let base = AnalysisComputeRequest(
             key: key(11),
+            window: nil,
             categoryFilter: nil,
             transactions: sampleTransactions,
             rules: [CategoryRuleSpec(matchText: "trader joes", category: .groceries)]

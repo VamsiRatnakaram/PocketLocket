@@ -111,6 +111,7 @@ final class SavingsSuggestionsCoordinator {
 
         activeTask?.cancel()
         let shouldDebounce = suggestions != nil
+            && !isBudgetOnlyChange(from: appliedRequest, to: request)
         let computeRequest = SavingsSuggestionsComputeRequest(
             key: request.key,
             transactions: transactions,
@@ -138,6 +139,17 @@ final class SavingsSuggestionsCoordinator {
             self.appliedRequest = request
             self.isRecomputing = false
         }
+    }
+
+    private func isBudgetOnlyChange(from previous: Request?, to current: Request) -> Bool {
+        guard let previous else { return false }
+        let oldKey = previous.key
+        let newKey = current.key
+        return oldKey.monthlyBudget != newKey.monthlyBudget
+            && oldKey.dataHash == newKey.dataHash
+            && oldKey.rulesHash == newKey.rulesHash
+            && oldKey.excludedAccountsRaw == newKey.excludedAccountsRaw
+            && oldKey.monthStart == newKey.monthStart
     }
 
     /// Cancels hidden-tab work and invalidates its publish token. The previous

@@ -75,6 +75,8 @@ struct AnalysisTransaction: Sendable, Hashable {
 /// A self-contained, `Sendable` description of one analysis computation.
 struct AnalysisComputeRequest: Sendable {
     var key: AnalysisSnapshotCache.InputsKey
+    var window: DateInterval?
+    var chartEnd: Date? = nil
     var categoryFilter: SpendCategory?
     var transactions: [AnalysisTransaction]
     var rules: [CategoryRuleSpec]
@@ -107,6 +109,8 @@ actor AnalysisComputeEngine {
     func snapshot(for request: AnalysisComputeRequest) -> AnalysisSnapshot? {
         cache.snapshot(
             key: request.key,
+            window: request.window,
+            chartEnd: request.chartEnd,
             categoryFilter: request.categoryFilter,
             groupingRules: request.groupingRules
         ) {
@@ -165,6 +169,8 @@ final class AnalysisSnapshotCoordinator {
     /// Everything that determines the rendered result.
     struct Request: Equatable, Sendable {
         var key: AnalysisSnapshotCache.InputsKey
+        var window: DateInterval? = nil
+        var chartEnd: Date? = nil
         var categoryFilter: SpendCategory?
     }
 
@@ -233,6 +239,8 @@ final class AnalysisSnapshotCoordinator {
         let shouldDebounce = phase.snapshot != nil
         let computeRequest = AnalysisComputeRequest(
             key: request.key,
+            window: request.window,
+            chartEnd: request.chartEnd,
             categoryFilter: request.categoryFilter,
             transactions: transactions,
             rules: rules,

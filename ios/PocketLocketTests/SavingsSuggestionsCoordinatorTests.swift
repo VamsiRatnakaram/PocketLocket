@@ -8,18 +8,26 @@ final class SavingsSuggestionsCoordinatorTests: XCTestCase {
         duration: 31 * 24 * 60 * 60
     )
 
-    private func key(_ dataHash: Int) -> SavingsSuggestionsCache.InputsKey {
+    private func key(
+        _ dataHash: Int,
+        monthlyBudget: Double = 3_000
+    ) -> SavingsSuggestionsCache.InputsKey {
         SavingsSuggestionsCache.InputsKey(
             dataHash: dataHash,
             rulesHash: 1,
             excludedAccountsRaw: "",
-            monthlyBudget: 3_000,
+            monthlyBudget: monthlyBudget,
             monthStart: currentMonth.start
         )
     }
 
-    private func request(_ dataHash: Int) -> SavingsSuggestionsCoordinator.Request {
-        SavingsSuggestionsCoordinator.Request(key: key(dataHash))
+    private func request(
+        _ dataHash: Int,
+        monthlyBudget: Double = 3_000
+    ) -> SavingsSuggestionsCoordinator.Request {
+        SavingsSuggestionsCoordinator.Request(
+            key: key(dataHash, monthlyBudget: monthlyBudget)
+        )
     }
 
     private var previousMonth: DateInterval {
@@ -108,6 +116,28 @@ final class SavingsSuggestionsCoordinatorTests: XCTestCase {
         )
         await coordinator.activeTask?.value
         XCTAssertEqual(coordinator.suggestions?.first?.id, "result-2")
+    }
+
+    func testBudgetOnlyChangeBypassesDebounce() async {
+        let budgetRefreshStarted = expectation(description: "Budget refresh started")
+        let coordinator = SavingsSuggestionsCoordinator(
+            debounce: .seconds(30),
+            cache: SavingsSuggestionsCache()
+        ) { request in
+            if request.monthlyBudget == 4_000 {
+                budgetRefreshStarted.fulfill()
+            }
+            return [Self.suggestion(for: Int(request.monthlyBudget))]
+        }
+
+        refresh(coordinator, request: request(1))
+        await coordinator.activeTask?.value
+
+        refresh(coordinator, request: request(1, monthlyBudget: 4_000))
+        await fulfillment(of: [budgetRefreshStarted], timeout: 0.25)
+        await coordinator.activeTask?.value
+
+        XCTAssertEqual(coordinator.suggestions?.first?.id, "result-4000")
     }
 
     func testRecreatedCoordinatorReadsSharedCacheWithoutComputing() async {
@@ -207,7 +237,7 @@ final class SavingsSuggestionsCoordinatorTests: XCTestCase {
             rules: [],
             currentMonth: currentMonth,
             previousMonth: previousMonth,
-            monthlyBudget: 3_000
+            monthlyBudget: request.key.monthlyBudget
         )
     }
 

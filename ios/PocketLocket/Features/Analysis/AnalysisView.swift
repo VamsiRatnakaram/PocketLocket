@@ -2,34 +2,62 @@ import SwiftUI
 import SwiftData
 import Charts
 
+private enum CategoryComparisonMode: String, CaseIterable, Identifiable {
+    case monthlyAverage
+    case previousMonth
+
+    var id: Self { self }
+}
+
+private enum SpendingChartMode: String, CaseIterable, Identifiable {
+    case cumulative
+    case rolling30Day
+
+    var id: Self { self }
+}
+
 /// Mines transaction history for merchant frequency, spend habits, and
 /// category trends — "how many times have I eaten here", "average grocery
 /// spend", "businesses I frequent" — computed entirely on-device.
 struct AnalysisView: View {
-    var isActive = true
+    var showSavingsPlan: () -> Void
 
+    @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
 
-    @State private var range: AnalysisTimeRange = .twelveMonths
-    @State private var availableRanges = AnalysisTimeRange.allCases
+    @State private var selectedWindow: DateInterval?
+    @State private var windowDomain = AnalysisDateWindow.domain(for: [])
+    @State private var previewWindow: DateInterval?
     @State private var selectedMerchant: MerchantAnalytics.MerchantStats?
     @State private var selectedCategory: SpendCategory?
     @State private var categoryFilter: SpendCategory?
+    @State private var categoryComparisonMode: CategoryComparisonMode = .monthlyAverage
+    @State private var spendingChartMode: SpendingChartMode = .cumulative
+    @State private var selectedChartDate: Date?
+    @State private var questionEntries: [TransactionQuestionContext.Entry]?
     /// Categories tapped "off" in the chart legend, per Vamsi's feedback that
     /// the 11-line chart is noisy — lets you isolate a few lines without
     /// changing the merchant-section category filter below it.
     @State private var hiddenChartCategories: Set<SpendCategory> = []
     @State private var isVisible = false
 
-    /// Start of the selected window, truncated to a day so it is stable within
-    /// a render pass and can safely take part in the cache key.
-    private var windowStart: Date? {
-        range.cutoff().map { Calendar.current.startOfDay(for: $0) }
+    private var analysisWindow: DateInterval {
+        AnalysisDateWindow.snappedToMonths(
+            AnalysisDateWindow.clamped(
+                selectedWindow ?? AnalysisDateWindow.defaultSelection(in: windowDomain),
+                to: windowDomain
+            ),
+            in: windowDomain
+        )
     }
 
-    /// Shared so the last snapshot is available immediately when this segment
-    /// becomes active again.
+    private var windowFractions: ClosedRange<Double> {
+        AnalysisDateWindow.fractions(for: analysisWindow, in: windowDomain)
+    }
+
+    /// Shared so the last completed work is immediately available on return.
     @State private var coordinator = AnalysisSnapshotCoordinator.shared
+    @State private var savingsCoordinator = SavingsSuggestionsCoordinator.shared
 
     var body: some View {
         Group {
@@ -43,7 +71,14 @@ struct AnalysisView: View {
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 24) {
-                            rangePicker
+                            AskPocketLocketCard(
+                                entries: questionEntries ?? [],
+                                monthlyBudget: monthlyBudget
+                            )
+                            SavingsQuickWins(
+                                suggestions: savingsCoordinator.suggestions ?? [],
+                                action: showSavingsPlan
+                            )
                             categorySpendChart(snapshot)
                             categoryAveragesList(snapshot)
                             categoryFilterRow(snapshot)
@@ -63,17 +98,19 @@ struct AnalysisView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        // The visible UI stays mounted so scroll and selection state survive a
-        // segment switch. Only this data driver owns @Query, so the hidden
-        // segment stops observing SwiftData and doing ledger-sized hashing.
+        // The visible tree stays query-free; this one driver owns every live
+        // SwiftData subscription used by Insights and Savings Plan.
         .background {
-            if isActive && isVisible {
+            if isVisible {
                 AnalysisDataDriver(
-                    range: $range,
+                    selectedWindow: $selectedWindow,
+                    windowDomain: $windowDomain,
                     categoryFilter: categoryFilter,
                     excludedAccountsRaw: excludedAccountsRaw,
-                    availableRanges: $availableRanges,
-                    coordinator: coordinator
+                    monthlyBudget: monthlyBudget,
+                    questionEntries: $questionEntries,
+                    analysisCoordinator: coordinator,
+                    savingsCoordinator: savingsCoordinator
                 )
             }
         }
@@ -82,32 +119,20 @@ struct AnalysisView: View {
             isVisible = false
             coordinator.suspend()
         }
-        .onChange(of: isActive) { _, active in
-            if !active { coordinator.suspend() }
-        }
         .navigationDestination(item: $selectedMerchant) { stats in
             AnalysisMerchantDestination(
                 stats: stats,
                 excludedAccountsRaw: excludedAccountsRaw,
-                windowStart: windowStart
+                window: analysisWindow
             )
         }
         .navigationDestination(item: $selectedCategory) { category in
             AnalysisCategoryDestination(
                 category: category,
                 excludedAccountsRaw: excludedAccountsRaw,
-                windowStart: windowStart
+                window: analysisWindow
             )
         }
-    }
-
-    private var rangePicker: some View {
-        Picker("Range", selection: $range) {
-            ForEach(availableRanges) { option in
-                Text(option.label).tag(option)
-            }
-        }
-        .pickerStyle(.segmented)
     }
 
     /// Lets you focus the frequency/spend/recurring sections below on a
@@ -145,57 +170,141 @@ struct AnalysisView: View {
     /// categories happen to appear in the current window.
     private static let spendingCategoryOrder: [SpendCategory] = SpendCategory.allCases.filter { $0.isSpending }
 
-    /// Fixed category -> point-symbol mapping, mirroring `spendingCategoryOrder`'s
-    /// color scale. Without an explicit scale, Charts assigns symbols based on
-    /// whichever categories are present in the current range, so switching
-    /// ranges reshuffled which shape represented which category.
-    private static let categorySymbols: [BasicChartSymbolShape] = [
-        .circle, .square, .triangle, .diamond, .pentagon, .cross, .plus, .asterisk
-    ]
-
     @ViewBuilder
     private func categorySpendChart(_ snapshot: AnalysisSnapshot) -> some View {
-        let categoryMonthly = snapshot.categoryMonthly
-        if !categoryMonthly.isEmpty {
-            let visibleMonthly = categoryMonthly.filter { !hiddenChartCategories.contains($0.category) }
+        let chartSource = spendingChartMode == .cumulative
+            ? snapshot.categoryCumulative
+            : snapshot.categoryMonthly
+        if !chartSource.isEmpty {
+            let windowMonthly = chartSource.filter {
+                $0.monthStart >= chartWindow.start && $0.monthStart < chartWindow.end
+            }
+            let chartCategories = Self.spendingCategoryOrder.filter { category in
+                windowMonthly.contains { $0.category == category }
+            }
+            let visibleMonthly = windowMonthly.filter { !hiddenChartCategories.contains($0.category) }
+            let selectedSampleDate = nearestChartDate(to: selectedChartDate, in: visibleMonthly)
+            let displayDate = selectedSampleDate ?? visibleMonthly.last?.monthStart
+            let displayEntries = displayDate.map { date in
+                visibleMonthly.filter { $0.monthStart == date }
+            } ?? []
             VStack(alignment: .leading, spacing: 8) {
-                Text("Spend by category over time")
-                    .font(.headline)
-                Chart(visibleMonthly) { entry in
-                    LineMark(
-                        x: .value("Month", entry.monthStart, unit: .month),
-                        y: .value("Spent", entry.amount)
-                    )
-                    .foregroundStyle(by: .value("Category", entry.category.displayName))
-                    .symbol(by: .value("Category", entry.category.displayName))
+                HStack {
+                    Text(spendingChartMode == .cumulative ? "Cumulative Spending" : "30-Day Spending Trend")
+                        .font(.headline)
+                    Spacer()
+                    Menu {
+                        Button {
+                            hiddenChartCategories.removeAll()
+                        } label: {
+                            Label("Show All", systemImage: "eye")
+                        }
+                        .disabled(hiddenChartCategories.isEmpty)
+
+                        Button {
+                            hiddenChartCategories.formUnion(chartCategories)
+                        } label: {
+                            Label("Hide All", systemImage: "eye.slash")
+                        }
+                        .disabled(chartCategories.allSatisfy(hiddenChartCategories.contains))
+
+                        Divider()
+
+                        ForEach(chartCategories) { category in
+                            let isVisible = !hiddenChartCategories.contains(category)
+                            Button { toggleChartCategory(category) } label: {
+                                Label(
+                                    category.displayName,
+                                    systemImage: isVisible ? "checkmark.circle.fill" : "circle"
+                                )
+                            }
+                        }
+                    } label: {
+                        Label("Categories", systemImage: "line.3.horizontal.decrease.circle")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                Picker("Chart mode", selection: $spendingChartMode) {
+                    Text("Cumulative").tag(SpendingChartMode.cumulative)
+                    Text("30-Day Trend").tag(SpendingChartMode.rolling30Day)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: spendingChartMode) { _, _ in selectedChartDate = nil }
+                if let displayDate {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(displayDate.formatted(.dateTime.month(.abbreviated).day().year()))
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text(CurrencyFormatter.string(displayEntries.reduce(0) { $0 + $1.amount }))
+                                .font(.subheadline.weight(.bold))
+                                .monospacedDigit()
+                            Text(spendingChartMode == .cumulative
+                                ? "visible total in range"
+                                : "smoothed 30-day total")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(height: 34)
+                }
+                Chart {
+                    ForEach(visibleMonthly) { entry in
+                        LineMark(
+                            x: .value("Date", entry.monthStart),
+                            y: .value("Spent", entry.amount)
+                        )
+                        .foregroundStyle(by: .value("Category", entry.category.displayName))
+                        .interpolationMethod(spendingChartMode == .cumulative ? .stepEnd : .monotone)
+                        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                    }
+                    if let selectedSampleDate {
+                        RuleMark(x: .value("Selected date", selectedSampleDate))
+                            .foregroundStyle(.secondary.opacity(0.75))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        ForEach(displayEntries) { entry in
+                            PointMark(
+                                x: .value("Date", entry.monthStart),
+                                y: .value("Spent", entry.amount)
+                            )
+                            .foregroundStyle(by: .value("Category", entry.category.displayName))
+                            .symbolSize(42)
+                        }
+                    }
                 }
                 .chartForegroundStyleScale(
                     domain: Self.spendingCategoryOrder.map(\.displayName),
                     range: Self.spendingCategoryOrder.map(\.tint)
                 )
-                .chartSymbolScale(
-                    domain: Self.spendingCategoryOrder.map(\.displayName),
-                    range: Self.spendingCategoryOrder.indices.map { Self.categorySymbols[$0 % Self.categorySymbols.count] }
-                )
                 .chartYAxis {
                     AxisMarks(format: .currency(code: "USD").precision(.fractionLength(0)))
                 }
+                .chartXScale(domain: chartWindow.start...chartDisplayEnd)
                 .chartLegend(.hidden)
+                .chartXSelection(value: $selectedChartDate)
                 .frame(height: 220)
+                .sensoryFeedback(.selection, trigger: selectedSampleDate)
                 CategoryLegendWrap(
-                    categories: Self.spendingCategoryOrder.filter { cat in
-                        categoryMonthly.contains { $0.category == cat }
-                    },
+                    categories: chartCategories,
                     hidden: hiddenChartCategories,
-                    onToggle: { category in
-                        if hiddenChartCategories.contains(category) {
-                            hiddenChartCategories.remove(category)
-                        } else {
-                            hiddenChartCategories.insert(category)
-                        }
-                    },
+                    onToggle: toggleChartCategory,
                     onShowAll: { hiddenChartCategories.removeAll() }
                 )
+                AnalysisWindowBar(
+                    selection: windowFractions,
+                    domain: windowDomain,
+                    onChange: { fractions in
+                        selectedChartDate = nil
+                        previewWindow = AnalysisDateWindow.interval(for: fractions, in: windowDomain)
+                    }
+                ) { fractions in
+                    selectedChartDate = nil
+                    selectedWindow = AnalysisDateWindow.interval(for: fractions, in: windowDomain)
+                    previewWindow = nil
+                }
+                .padding(.top, 4)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -203,16 +312,43 @@ struct AnalysisView: View {
         }
     }
 
+    private func toggleChartCategory(_ category: SpendCategory) {
+        if hiddenChartCategories.contains(category) {
+            hiddenChartCategories.remove(category)
+        } else {
+            hiddenChartCategories.insert(category)
+        }
+    }
+
+    private func nearestChartDate(
+        to selection: Date?,
+        in entries: [MerchantAnalytics.CategoryMonth]
+    ) -> Date? {
+        guard let selection, let firstCategory = entries.first?.category else { return nil }
+        return entries.lazy.filter { $0.category == firstCategory }.min {
+            abs($0.monthStart.timeIntervalSince(selection))
+                < abs($1.monthStart.timeIntervalSince(selection))
+        }?.monthStart
+    }
+
     @ViewBuilder
     private func categoryAveragesList(_ snapshot: AnalysisSnapshot) -> some View {
         let categoryAverages = snapshot.categoryAverages
         if !categoryAverages.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Monthly category averages")
+                Text("\(comparisonMonthLabel) Category Spending")
                     .font(.headline)
+                Picker("Comparison baseline", selection: $categoryComparisonMode) {
+                    Text("Overall average").tag(CategoryComparisonMode.monthlyAverage)
+                    Text("Previous month").tag(CategoryComparisonMode.previousMonth)
+                }
+                .pickerStyle(.segmented)
                 ForEach(categoryAverages.prefix(6)) { average in
                     Button { selectedCategory = average.category } label: {
-                        CategoryAverageRow(average: average)
+                        CategoryAverageRow(
+                            average: average,
+                            comparisonMode: categoryComparisonMode
+                        )
                     }
                     .buttonStyle(PressableStyle(scale: 0.98))
                     if average.id != categoryAverages.prefix(6).last?.id {
@@ -224,6 +360,11 @@ struct AnalysisView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+    }
+
+    private var comparisonMonthLabel: String {
+        analysisWindow.end.addingTimeInterval(-1)
+            .formatted(.dateTime.month(.wide).year())
     }
 
     private func merchantSection(
@@ -247,6 +388,218 @@ struct AnalysisView: View {
             .padding(16)
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+    }
+
+    private var chartWindow: DateInterval {
+        AnalysisDateWindow.clamped(previewWindow ?? analysisWindow, to: windowDomain)
+    }
+
+    private var chartDisplayEnd: Date {
+        let calendar = Calendar.current
+        let lastWindowDay = calendar.date(byAdding: .day, value: -1, to: chartWindow.end)
+            ?? chartWindow.end
+        return min(lastWindowDay, calendar.startOfDay(for: Date()))
+    }
+}
+
+private struct AnalysisWindowBar: View {
+    let selection: ClosedRange<Double>
+    let domain: DateInterval
+    let onChange: (ClosedRange<Double>) -> Void
+    let onCommit: (ClosedRange<Double>) -> Void
+
+    @State private var draftSelection: ClosedRange<Double>?
+    @State private var dragStartSelection: ClosedRange<Double>?
+    @State private var dragTarget: DragTarget?
+
+    private enum DragTarget { case lowerHandle, upperHandle, window }
+
+    private var displayedSelection: ClosedRange<Double> {
+        snapped(draftSelection ?? selection)
+    }
+
+    private var boundaryFractions: [Double] {
+        AnalysisDateWindow.monthBoundaries(in: domain).map {
+            AnalysisDateWindow.fraction(for: $0, in: domain)
+        }
+    }
+
+    private var tickFractions: [Double] {
+        let boundaries = boundaryFractions
+        let step = max(Int(ceil(Double(max(boundaries.count - 1, 1)) / 24)), 1)
+        var ticks: [Double] = []
+        for (index, fraction) in boundaries.enumerated() {
+            if index.isMultiple(of: step) || index == boundaries.count - 1 {
+                ticks.append(fraction)
+            }
+        }
+        return ticks
+    }
+
+    private var selectedMonthCount: Int {
+        max(
+            nearestBoundaryIndex(to: displayedSelection.upperBound)
+                - nearestBoundaryIndex(to: displayedSelection.lowerBound),
+            1
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack {
+                Text(label(for: displayedSelection.lowerBound, isUpperBound: false))
+                Spacer()
+                Label("\(selectedMonthCount) mo", systemImage: "calendar")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Text(label(for: displayedSelection.upperBound, isUpperBound: true))
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+
+            GeometryReader { geometry in
+                let inset: CGFloat = 14
+                let width = max(geometry.size.width - inset * 2, 1)
+                let lowerX = inset + width * displayedSelection.lowerBound
+                let upperX = inset + width * displayedSelection.upperBound
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.2))
+                        .frame(width: width, height: 4)
+                        .offset(x: inset)
+                    ForEach(tickFractions, id: \.self) { fraction in
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.35))
+                            .frame(width: 1, height: 8)
+                            .position(x: inset + width * fraction, y: 16)
+                    }
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: max(upperX - lowerX, 4), height: 8)
+                        .offset(x: lowerX)
+                    handle.position(x: lowerX, y: 16)
+                    handle.position(x: upperX, y: 16)
+                }
+                .contentShape(Rectangle())
+                .gesture(dragGesture(width: width, inset: inset))
+            }
+            .frame(height: 32)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Analysis date window")
+        .accessibilityValue(
+            "\(label(for: displayedSelection.lowerBound, isUpperBound: false)) to "
+                + label(for: displayedSelection.upperBound, isUpperBound: true)
+        )
+        .accessibilityAdjustableAction { direction in
+            commitShiftedWindow(byMonths: direction == .increment ? 1 : -1)
+        }
+    }
+
+    private var handle: some View {
+        Circle()
+            .fill(Color(.systemBackground))
+            .overlay(Circle().stroke(Color.accentColor, lineWidth: 3))
+            .frame(width: 26, height: 26)
+            .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+    }
+
+    private func dragGesture(width: CGFloat, inset: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                let start = dragStartSelection ?? displayedSelection
+                let target: DragTarget
+                if let dragTarget {
+                    target = dragTarget
+                } else {
+                    target = targetForDrag(
+                        at: value.startLocation.x,
+                        selection: start,
+                        width: width,
+                        inset: inset
+                    )
+                    self.dragTarget = target
+                    dragStartSelection = start
+                }
+
+                let fraction = min(max((value.location.x - inset) / width, 0), 1)
+                let lowerIndex = nearestBoundaryIndex(to: start.lowerBound)
+                let upperIndex = nearestBoundaryIndex(to: start.upperBound)
+                switch target {
+                case .lowerHandle:
+                    let index = min(nearestBoundaryIndex(to: fraction), upperIndex - 1)
+                    draftSelection = range(lowerIndex: max(index, 0), upperIndex: upperIndex)
+                case .upperHandle:
+                    let index = max(nearestBoundaryIndex(to: fraction), lowerIndex + 1)
+                    draftSelection = range(
+                        lowerIndex: lowerIndex,
+                        upperIndex: min(index, boundaryFractions.count - 1)
+                    )
+                case .window:
+                    let span = upperIndex - lowerIndex
+                    let delta = value.translation.width / width
+                    let proposedLower = nearestBoundaryIndex(to: start.lowerBound + delta)
+                    let newLower = min(max(proposedLower, 0), boundaryFractions.count - 1 - span)
+                    draftSelection = range(lowerIndex: newLower, upperIndex: newLower + span)
+                }
+                if let draftSelection { onChange(draftSelection) }
+            }
+            .onEnded { _ in
+                onCommit(snapped(draftSelection ?? selection))
+                draftSelection = nil
+                dragStartSelection = nil
+                dragTarget = nil
+            }
+    }
+
+    private func targetForDrag(
+        at location: CGFloat,
+        selection: ClosedRange<Double>,
+        width: CGFloat,
+        inset: CGFloat
+    ) -> DragTarget {
+        let lowerX = inset + width * selection.lowerBound
+        let upperX = inset + width * selection.upperBound
+        let lowerDistance = abs(location - lowerX)
+        let upperDistance = abs(location - upperX)
+        if min(lowerDistance, upperDistance) <= 24 {
+            return lowerDistance <= upperDistance ? .lowerHandle : .upperHandle
+        }
+        if location > lowerX, location < upperX { return .window }
+        return lowerDistance <= upperDistance ? .lowerHandle : .upperHandle
+    }
+
+    private func commitShiftedWindow(byMonths delta: Int) {
+        let lowerIndex = nearestBoundaryIndex(to: selection.lowerBound)
+        let upperIndex = nearestBoundaryIndex(to: selection.upperBound)
+        let span = upperIndex - lowerIndex
+        let shiftedLower = min(max(lowerIndex + delta, 0), boundaryFractions.count - 1 - span)
+        onCommit(range(lowerIndex: shiftedLower, upperIndex: shiftedLower + span))
+    }
+
+    private func nearestBoundaryIndex(to fraction: Double) -> Int {
+        boundaryFractions.indices.min {
+            abs(boundaryFractions[$0] - fraction) < abs(boundaryFractions[$1] - fraction)
+        } ?? 0
+    }
+
+    private func range(lowerIndex: Int, upperIndex: Int) -> ClosedRange<Double> {
+        boundaryFractions[lowerIndex]...boundaryFractions[upperIndex]
+    }
+
+    private func snapped(_ fractions: ClosedRange<Double>) -> ClosedRange<Double> {
+        let interval = AnalysisDateWindow.interval(for: fractions, in: domain)
+        let snapped = AnalysisDateWindow.snappedToMonths(interval, in: domain)
+        return AnalysisDateWindow.fractions(for: snapped, in: domain)
+    }
+
+    private func label(for fraction: Double, isUpperBound: Bool) -> String {
+        var date = AnalysisDateWindow.date(for: fraction, in: domain)
+        if isUpperBound, date > domain.start { date = date.addingTimeInterval(-1) }
+        return date.formatted(.dateTime.month(.abbreviated).year())
     }
 }
 
@@ -369,6 +722,44 @@ private struct MerchantRow: View {
 
 private struct CategoryAverageRow: View {
     let average: MerchantAnalytics.CategoryAverage
+    let comparisonMode: CategoryComparisonMode
+
+    private var baselineAmount: Double {
+        switch comparisonMode {
+        case .monthlyAverage: average.priorMonthsAverage
+        case .previousMonth: average.previousMonthSpend
+        }
+    }
+
+    private var hasBaseline: Bool {
+        switch comparisonMode {
+        case .monthlyAverage: average.priorMonthCount > 0
+        case .previousMonth: average.previousMonthIsComplete
+        }
+    }
+
+    private var trend: MerchantAnalytics.Trend {
+        switch comparisonMode {
+        case .monthlyAverage: average.priorAverageTrend
+        case .previousMonth: average.previousMonthTrend
+        }
+    }
+
+    private var baselineLabel: String {
+        switch comparisonMode {
+        case .monthlyAverage:
+            return "\(CurrencyFormatter.string(baselineAmount))/mo average"
+        case .previousMonth:
+            return "\(CurrencyFormatter.string(baselineAmount)) previous month"
+        }
+    }
+
+    private var missingBaselineLabel: String {
+        switch comparisonMode {
+        case .monthlyAverage: "No full-month baseline"
+        case .previousMonth: "Previous month incomplete"
+        }
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -380,11 +771,26 @@ private struct CategoryAverageRow: View {
             }
             Text(average.category.displayName)
                 .font(.subheadline)
+                .lineLimit(1)
             Spacer()
-            Text("\(CurrencyFormatter.string(average.averagePerMonth))/mo")
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-            TrendBadge(trend: average.trend)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(CurrencyFormatter.string(average.currentMonthSpend))
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                if hasBaseline {
+                    Text(baselineLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                } else {
+                    Text(missingBaselineLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if hasBaseline {
+                TrendBadge(trend: trend)
+            }
             Image(systemName: "chevron.right")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.tertiary)
@@ -393,62 +799,155 @@ private struct CategoryAverageRow: View {
     }
 }
 
-/// Owns the live SwiftData subscriptions only while Analysis is visible.
-///
-/// The rendered Analysis tree remains mounted in `AnalysisView`, preserving
-/// scroll position and controls, while switching to Save removes this driver
-/// and all of its query observation.
+/// Owns every live SwiftData subscription used by Insights and Savings Plan.
 private struct AnalysisDataDriver: View {
-    @Binding var range: AnalysisTimeRange
+    struct Request: Equatable {
+        let analysis: AnalysisSnapshotCoordinator.Request
+        let savings: SavingsSuggestionsCoordinator.Request
+        let questionDataHash: Int
+        let domain: DateInterval
+    }
+
+    @Binding var selectedWindow: DateInterval?
+    @Binding var windowDomain: DateInterval
     let categoryFilter: SpendCategory?
     let excludedAccountsRaw: String
-    @Binding var availableRanges: [AnalysisTimeRange]
-    let coordinator: AnalysisSnapshotCoordinator
+    let monthlyBudget: Double
+    @Binding var questionEntries: [TransactionQuestionContext.Entry]?
+    let analysisCoordinator: AnalysisSnapshotCoordinator
+    let savingsCoordinator: SavingsSuggestionsCoordinator
 
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
     @Query private var groupingRules: [MerchantGroupingRule]
 
-    private var windowStart: Date? {
-        range.cutoff().map { Calendar.current.startOfDay(for: $0) }
+    private var excludedAccountIDs: Set<String> {
+        SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
     }
 
-    private var request: AnalysisSnapshotCoordinator.Request {
-        AnalysisSnapshotCoordinator.Request(
-            key: AnalysisSnapshotCache.InputsKey(
-                dataHash: AnalysisSnapshotCache.dataHash(transactions),
-                rulesHash: AnalysisSnapshotCache.rulesHash(rules),
-                groupingRulesHash: AnalysisSnapshotCache.groupingRulesHash(groupingRules),
-                excludedAccountsRaw: excludedAccountsRaw,
-                range: range,
-                windowStart: windowStart
+    private var includedTransactions: [TransactionRecord] {
+        transactions.filter {
+            SpendingAccountFilter.isIncluded($0.accountId, excluded: excludedAccountIDs)
+        }
+    }
+
+    private var domain: DateInterval {
+        let included = includedTransactions
+        return AnalysisDateWindow.domain(
+            for: [included.last?.date, included.first?.date].compactMap { $0 }
+        )
+    }
+
+    private var analysisWindow: DateInterval {
+        AnalysisDateWindow.snappedToMonths(
+            AnalysisDateWindow.clamped(
+                selectedWindow ?? AnalysisDateWindow.defaultSelection(in: domain),
+                to: domain
             ),
-            categoryFilter: categoryFilter
+            in: domain
+        )
+    }
+
+    private var currentMonth: DateInterval {
+        Calendar.current.dateInterval(of: .month, for: Date())
+            ?? DateInterval(start: .distantPast, duration: 0)
+    }
+
+    private var previousMonth: DateInterval {
+        let calendar = Calendar.current
+        guard let previous = calendar.date(byAdding: .month, value: -1, to: Date()),
+              let interval = calendar.dateInterval(of: .month, for: previous)
+        else { return DateInterval(start: .distantPast, duration: 0) }
+        return interval
+    }
+
+    private var suggestionTransactions: [TransactionRecord] {
+        includedTransactions.filter {
+            $0.date >= previousMonth.start && $0.date < currentMonth.end
+        }
+    }
+
+    private var questionTransactions: [TransactionRecord] {
+        let cutoff = Calendar.current.date(byAdding: .month, value: -12, to: Date()) ?? .distantPast
+        return Array(includedTransactions.lazy.filter { $0.date >= cutoff }.prefix(120))
+    }
+
+    private var request: Request {
+        let included = includedTransactions
+        let suggestions = suggestionTransactions
+        let questions = questionTransactions
+        return Request(
+            analysis: AnalysisSnapshotCoordinator.Request(
+                key: AnalysisSnapshotCache.InputsKey(
+                    dataHash: AnalysisSnapshotCache.dataHash(included),
+                    rulesHash: AnalysisSnapshotCache.rulesHash(rules),
+                    groupingRulesHash: AnalysisSnapshotCache.groupingRulesHash(groupingRules),
+                    excludedAccountsRaw: excludedAccountsRaw
+                ),
+                window: analysisWindow,
+                chartEnd: Calendar.current.startOfDay(for: Date()),
+                categoryFilter: categoryFilter
+            ),
+            savings: SavingsSuggestionsCoordinator.Request(
+                key: SavingsSuggestionsCache.InputsKey(
+                    dataHash: RecordHash.transactions(suggestions),
+                    rulesHash: RecordHash.rules(rules),
+                    excludedAccountsRaw: excludedAccountsRaw,
+                    monthlyBudget: monthlyBudget,
+                    monthStart: currentMonth.start
+                )
+            ),
+            questionDataHash: RecordHash.transactions(questions),
+            domain: domain
         )
     }
 
     var body: some View {
         Color.clear
             .onChange(of: request, initial: true) { _, newRequest in
-                let meaningfulRanges = meaningfulAnalysisRanges(for: transactions)
-                availableRanges = meaningfulRanges
-                guard meaningfulRanges.contains(range) else {
-                    range = meaningfulRanges.last ?? .oneMonth
-                    return
+                if windowDomain != newRequest.domain {
+                    windowDomain = newRequest.domain
                 }
-                coordinator.refresh(
-                    newRequest,
-                    transactions: scopedAnalysisTransactions(
-                        transactions,
-                        excludedAccountsRaw: excludedAccountsRaw,
-                        windowStart: windowStart
-                    ).map(AnalysisTransaction.init(record:)),
-                    rules: rules.map(CategoryRuleSpec.init(rule:)),
-                    groupingRules: groupingRules.map(MerchantGroupingRuleSpec.init(rule:))
-                )
+                if let selectedWindow {
+                    let clamped = AnalysisDateWindow.clamped(selectedWindow, to: newRequest.domain)
+                    if clamped != selectedWindow { self.selectedWindow = clamped }
+                }
+                refresh(newRequest)
             }
-            .onDisappear { coordinator.suspend() }
+            .onDisappear {
+                analysisCoordinator.suspend()
+            }
             .accessibilityHidden(true)
+    }
+
+    private func refresh(_ request: Request) {
+        let ruleSpecs = rules.map(CategoryRuleSpec.init(rule:))
+        let included = includedTransactions
+        analysisCoordinator.refresh(
+            request.analysis,
+            transactions: included.map(AnalysisTransaction.init(record:)),
+            rules: ruleSpecs,
+            groupingRules: groupingRules.map(MerchantGroupingRuleSpec.init(rule:))
+        )
+
+        questionEntries = questionTransactions.map { transaction in
+            TransactionQuestionContext.Entry(
+                date: transaction.date,
+                title: transaction.title,
+                amount: transaction.amount,
+                currency: transaction.isoCurrencyCode,
+                category: transaction.resolvedCategory(using: rules).displayName
+            )
+        }
+
+        savingsCoordinator.refresh(
+            request.savings,
+            transactions: suggestionTransactions.map(AnalysisTransaction.init(record:)),
+            rules: ruleSpecs,
+            currentMonth: currentMonth,
+            previousMonth: previousMonth,
+            monthlyBudget: monthlyBudget
+        )
     }
 }
 
@@ -458,7 +957,7 @@ private struct AnalysisDataDriver: View {
 private struct AnalysisMerchantDestination: View {
     let stats: MerchantAnalytics.MerchantStats
     let excludedAccountsRaw: String
-    let windowStart: Date?
+    let window: DateInterval
 
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
@@ -469,7 +968,7 @@ private struct AnalysisMerchantDestination: View {
             transactions: scopedAnalysisTransactions(
                 transactions,
                 excludedAccountsRaw: excludedAccountsRaw,
-                windowStart: windowStart
+                window: window
             ),
             rules: rules
         )
@@ -479,7 +978,7 @@ private struct AnalysisMerchantDestination: View {
 private struct AnalysisCategoryDestination: View {
     let category: SpendCategory
     let excludedAccountsRaw: String
-    let windowStart: Date?
+    let window: DateInterval
 
     @Query(sort: \TransactionRecord.date, order: .reverse) private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
@@ -490,7 +989,7 @@ private struct AnalysisCategoryDestination: View {
             transactions: scopedAnalysisTransactions(
                 transactions,
                 excludedAccountsRaw: excludedAccountsRaw,
-                windowStart: windowStart
+                window: window
             ),
             rules: rules
         )
@@ -500,29 +999,14 @@ private struct AnalysisCategoryDestination: View {
 private func scopedAnalysisTransactions(
     _ transactions: [TransactionRecord],
     excludedAccountsRaw: String,
-    windowStart: Date?
+    window: DateInterval
 ) -> [TransactionRecord] {
     let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
     return transactions.filter { transaction in
         SpendingAccountFilter.isIncluded(transaction.accountId, excluded: excluded)
-            && (windowStart == nil || transaction.date >= windowStart!)
+            && transaction.date >= window.start
+            && transaction.date < window.end
     }
-}
-
-/// Hides range choices that would display the same history as a shorter one.
-private func meaningfulAnalysisRanges(for transactions: [TransactionRecord]) -> [AnalysisTimeRange] {
-    guard let earliest = transactions.lazy.map(\.date).min() else { return [.oneMonth] }
-    let spanMonths = Calendar.current.dateComponents([.month], from: earliest, to: Date()).month ?? 0
-    let options = AnalysisTimeRange.allCases.filter { option in
-        switch option {
-        case .oneMonth: return true
-        case .threeMonths: return spanMonths >= 1
-        case .sixMonths: return spanMonths >= 3
-        case .twelveMonths: return spanMonths >= 6
-        case .all: return spanMonths >= 12
-        }
-    }
-    return options.isEmpty ? [.oneMonth] : options
 }
 
 struct TrendBadge: View {
