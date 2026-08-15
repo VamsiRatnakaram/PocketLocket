@@ -5,6 +5,7 @@ enum MerchantDetailBuilder {
     struct Item: Identifiable {
         let transaction: TransactionRecord
         let category: SpendCategory
+        let reimbursedAmount: Double
         var id: String { transaction.id }
     }
 
@@ -22,6 +23,7 @@ enum MerchantDetailBuilder {
         stats: MerchantAnalytics.MerchantStats,
         transactions: [TransactionRecord],
         calendar: Calendar = .current,
+        effectiveAmountFor: (TransactionRecord) -> Double = { $0.amount },
         categoryFor: (TransactionRecord) -> SpendCategory
     ) -> Content {
         var items: [Item] = []
@@ -30,7 +32,13 @@ enum MerchantDetailBuilder {
         where transaction.amount > 0 && stats.matches(transaction.title) {
             let category = categoryFor(transaction)
             guard category.isSpending else { continue }
-            items.append(Item(transaction: transaction, category: category))
+            let effectiveAmount = effectiveAmountFor(transaction)
+            guard effectiveAmount > 0 else { continue }
+            items.append(Item(
+                transaction: transaction,
+                category: category,
+                reimbursedAmount: max(0, transaction.amount - effectiveAmount)
+            ))
         }
         items.sort { $0.transaction.date > $1.transaction.date }
 
@@ -40,7 +48,7 @@ enum MerchantDetailBuilder {
                 of: .month,
                 for: item.transaction.date
             )?.start else { continue }
-            buckets[monthStart, default: 0] += item.transaction.amount
+            buckets[monthStart, default: 0] += effectiveAmountFor(item.transaction)
         }
         let monthly = buckets
             .map {
@@ -59,6 +67,7 @@ enum MerchantDetailBuilder {
 private struct MerchantDetailContentKey: Equatable {
     let dataHash: Int
     let rulesHash: Int
+    let reimbursementsHash: Int
     let merchantID: String
 }
 
@@ -69,6 +78,7 @@ struct MerchantDetailView: View {
     let stats: MerchantAnalytics.MerchantStats
     let transactions: [TransactionRecord]
     let rules: [CategoryRule]
+    let reimbursementAllocations: [ReimbursementAllocation]
 
     @Environment(\.dismiss) private var dismiss
     @State private var detail: MerchantDetailBuilder.Item?
@@ -82,12 +92,20 @@ struct MerchantDetailView: View {
         let key = MerchantDetailContentKey(
             dataHash: RecordHash.transactions(transactions),
             rulesHash: RecordHash.rules(rules),
+            reimbursementsHash: RecordHash.reimbursements(reimbursementAllocations),
             merchantID: stats.id
         )
         return contentCache.value(for: key) {
-            MerchantDetailBuilder.build(
+            let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
+            return MerchantDetailBuilder.build(
                 stats: stats,
-                transactions: transactions
+                transactions: transactions,
+                effectiveAmountFor: {
+                    reimbursementIndex.effectiveExpenseAmount(
+                        transactionID: $0.id,
+                        originalAmount: $0.amount
+                    )
+                }
             ) {
                 $0.resolvedCategory(using: rules)
             }
@@ -117,7 +135,8 @@ struct MerchantDetailView: View {
                     Button { detail = item } label: {
                         TransactionRow(
                             txn: item.transaction,
-                            category: item.category
+                            category: item.category,
+                            reimbursedAmount: item.reimbursedAmount
                         )
                     }
                     .buttonStyle(PressableStyle(scale: 0.98))

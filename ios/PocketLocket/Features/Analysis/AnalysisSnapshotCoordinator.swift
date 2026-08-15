@@ -39,10 +39,14 @@ struct AnalysisTransaction: Sendable, Hashable {
     }
 
     init(record: TransactionRecord) {
+        self.init(record: record, effectiveAmount: record.amount)
+    }
+
+    init(record: TransactionRecord, effectiveAmount: Double) {
         self.init(
             name: record.name,
             merchantName: record.merchantName,
-            amount: record.amount,
+            amount: effectiveAmount,
             date: record.date,
             categoryPrimary: record.categoryPrimary,
             categoryOverride: record.categoryOverride,

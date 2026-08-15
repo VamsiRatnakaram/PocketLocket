@@ -219,6 +219,7 @@ struct SettingsView: View {
     /// re-entering a setup token to get the same accounts back is busywork —
     /// but someone handing the phone on wants the credential gone too.
     private func resetLocalData(disconnectSimpleFIN: Bool) {
+        try? context.delete(model: ReimbursementAllocation.self)
         try? context.delete(model: TransactionRecord.self)
         try? context.delete(model: AccountRecord.self)
         try? context.delete(model: CategoryRule.self)

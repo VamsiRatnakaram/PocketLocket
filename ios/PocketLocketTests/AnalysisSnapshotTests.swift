@@ -165,11 +165,16 @@ final class AnalysisSnapshotTests: XCTestCase {
         _ = cache.snapshot(key: groupingChanged, categoryFilter: nil, buildInputs: build)
         XCTAssertEqual(builds, 4, "a grouping correction must invalidate the cache")
 
+        var reimbursementChanged = groupingChanged
+        reimbursementChanged.reimbursementsHash = 9
+        _ = cache.snapshot(key: reimbursementChanged, categoryFilter: nil, buildInputs: build)
+        XCTAssertEqual(builds, 5, "a reimbursement change must invalidate resolved amounts")
+
         let firstWindow = DateInterval(start: date(1), end: date(2))
         let secondWindow = DateInterval(start: date(2), end: date(3))
-        _ = cache.snapshot(key: groupingChanged, window: firstWindow, categoryFilter: nil, buildInputs: build)
-        _ = cache.snapshot(key: groupingChanged, window: secondWindow, categoryFilter: nil, buildInputs: build)
-        XCTAssertEqual(builds, 4, "moving the window must reuse already-resolved inputs")
+        _ = cache.snapshot(key: reimbursementChanged, window: firstWindow, categoryFilter: nil, buildInputs: build)
+        _ = cache.snapshot(key: reimbursementChanged, window: secondWindow, categoryFilter: nil, buildInputs: build)
+        XCTAssertEqual(builds, 5, "moving the window must reuse already-resolved inputs")
     }
 
     func testCacheRecomputesSnapshotWhenFilterChanges() throws {

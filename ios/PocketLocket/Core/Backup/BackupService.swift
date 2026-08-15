@@ -13,13 +13,15 @@ enum BackupService {
     // MARK: - Serializable shapes
 
     struct Payload: Codable {
-        var version = 1
+        var version = 2
         var exportedAt = Date()
         var accounts: [AccountDTO]
         var transactions: [TxnDTO]
         var rules: [RuleDTO]
         /// Optional so backups created before grouping controls still decode.
         var groupingRules: [GroupingRuleDTO]?
+        /// Optional so version 1 backups still decode.
+        var reimbursementAllocations: [ReimbursementAllocationDTO]? = nil
     }
 
     struct AccountDTO: Codable {
@@ -84,6 +86,22 @@ enum BackupService {
         }
     }
 
+    struct ReimbursementAllocationDTO: Codable {
+        var id: String
+        var sourceTransactionID: String
+        var expenseTransactionID: String
+        var amount: Double
+        var createdAt: Date
+
+        init(_ allocation: ReimbursementAllocation) {
+            id = allocation.id
+            sourceTransactionID = allocation.sourceTransactionID
+            expenseTransactionID = allocation.expenseTransactionID
+            amount = allocation.amount
+            createdAt = allocation.createdAt
+        }
+    }
+
     private struct Envelope: Codable {
         var version = 1
         var salt: String
@@ -111,7 +129,10 @@ enum BackupService {
             accounts: try context.fetch(FetchDescriptor<AccountRecord>()).map(AccountDTO.init),
             transactions: try context.fetch(FetchDescriptor<TransactionRecord>()).map(TxnDTO.init),
             rules: try context.fetch(FetchDescriptor<CategoryRule>()).map(RuleDTO.init),
-            groupingRules: try context.fetch(FetchDescriptor<MerchantGroupingRule>()).map(GroupingRuleDTO.init)
+            groupingRules: try context.fetch(FetchDescriptor<MerchantGroupingRule>()).map(GroupingRuleDTO.init),
+            reimbursementAllocations: try context.fetch(
+                FetchDescriptor<ReimbursementAllocation>()
+            ).map(ReimbursementAllocationDTO.init)
         )
         let plaintext = try JSONEncoder().encode(payload)
         return try encrypt(plaintext, password: password)
@@ -245,6 +266,29 @@ enum BackupService {
                 groupID: rule.groupID ?? UUID().uuidString,
                 groupName: rule.groupName,
                 createdAt: rule.createdAt
+            ))
+        }
+
+        let availableTransactionIDs = Set(
+            (try? context.fetch(FetchDescriptor<TransactionRecord>()).map(\.id)) ?? []
+        )
+        for allocation in payload.reimbursementAllocations ?? [] {
+            guard availableTransactionIDs.contains(allocation.sourceTransactionID),
+                  availableTransactionIDs.contains(allocation.expenseTransactionID)
+            else { continue }
+            let id = allocation.id
+            let exists = ((try? context.fetch(
+                FetchDescriptor<ReimbursementAllocation>(
+                    predicate: #Predicate { $0.id == id }
+                )
+            ))?.first) != nil
+            guard !exists else { continue }
+            context.insert(ReimbursementAllocation(
+                id: allocation.id,
+                sourceTransactionID: allocation.sourceTransactionID,
+                expenseTransactionID: allocation.expenseTransactionID,
+                amount: allocation.amount,
+                createdAt: allocation.createdAt
             ))
         }
 
