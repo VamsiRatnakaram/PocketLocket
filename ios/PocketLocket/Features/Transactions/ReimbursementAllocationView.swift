@@ -26,6 +26,7 @@ struct ReimbursementAllocationView: View {
     @Query private var rules: [CategoryRule]
     @Query(sort: \ReimbursementAllocation.createdAt, order: .reverse)
     private var allocations: [ReimbursementAllocation]
+    @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
 
     @State private var search = ""
     @State private var selectedCounterparty: TransactionRecord?
@@ -75,6 +76,9 @@ struct ReimbursementAllocationView: View {
 
     private var candidates: [TransactionRecord] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let excludedAccountIDs = SpendingAccountFilter.excludedIds(
+            from: excludedAccountsRaw
+        )
         let unfiltered: [TransactionRecord]
         switch direction {
         case .fromSource:
@@ -82,13 +86,15 @@ struct ReimbursementAllocationView: View {
                 for: transaction,
                 in: transactions,
                 index: index,
+                excludedAccountIDs: excludedAccountIDs,
                 categoryFor: { $0.resolvedCategory(using: rules) }
             )
         case .toExpense:
             unfiltered = ReimbursementSourceCandidateBuilder.candidates(
                 for: transaction,
                 in: transactions,
-                index: index
+                index: index,
+                excludedAccountIDs: excludedAccountIDs
             )
         }
         return unfiltered.filter {

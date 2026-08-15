@@ -17,31 +17,44 @@ struct AccountCard: View {
                 Text(account.displayName)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    Text(
+                        CurrencyFormatter.string(
+                            account.currentBalance,
+                            code: account.isoCurrencyCode
+                        )
+                    )
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
-
-            Spacer()
-
-            Text(CurrencyFormatter.string(account.currentBalance, code: account.isoCurrencyCode))
-                .font(.callout.weight(.semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
         }
         .padding(.vertical, 4)
     }
 
     private var subtitle: String {
-        let type = (account.subtype ?? account.type ?? "account").capitalized
+        let type = (
+            account.typeOverrideRaw == nil
+                ? (account.subtype ?? account.resolvedType ?? "account")
+                : (AccountTypeChoice(rawValue: account.resolvedType ?? "")?.displayName
+                    ?? account.resolvedType
+                    ?? "account")
+        ).capitalized
         if let mask = account.mask { return "\(type) ••\(mask)" }
         return type
     }
 
     private var iconName: String {
-        switch account.type {
+        switch account.resolvedType {
         case "credit": return "creditcard.fill"
         case "loan": return "banknote.fill"
         case "investment": return "chart.line.uptrend.xyaxis"

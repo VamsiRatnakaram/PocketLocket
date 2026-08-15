@@ -112,14 +112,15 @@ final class SyncService {
     private func upsertLocalAccount(id: String, name: String, balance: Double, currency: String, type: String, accountsByID: inout [String: AccountRecord], context: ModelContext) -> Bool {
         let existing = accountsByID[id]
         if let existing {
+            let previousResolvedType = existing.resolvedType
+            existing.type = type
             let shouldExclude = SimpleFINMapper.shouldDefaultExclude(
-                previousType: existing.type,
-                newType: type
+                previousType: previousResolvedType,
+                newType: existing.resolvedType ?? type
             )
             existing.name = name
             existing.currentBalance = balance
             existing.isoCurrencyCode = currency
-            existing.type = type
             return shouldExclude
         } else {
             let account = AccountRecord(

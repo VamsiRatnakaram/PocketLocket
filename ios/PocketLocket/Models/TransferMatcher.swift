@@ -81,6 +81,7 @@ enum TransferMatcher {
     static func match(
         candidates: [Candidate],
         transferAccountIds: Set<String>,
+        bidirectionalTransferAccountIds: Set<String> = [],
         windowInDays: Int = defaultWindowInDays
     ) -> [String: String] {
         // Bucket by currency and exact magnitude in cents. A transfer moves an
@@ -120,7 +121,10 @@ enum TransferMatcher {
                     // loan account. Accepting a credit/loan account on either
                     // side let a card purchase pair with an unrelated checking
                     // deposit and erase real spending from the budget.
-                    guard transferAccountIds.contains(inflow.accountId) else { continue }
+                    guard transferAccountIds.contains(inflow.accountId)
+                            || bidirectionalTransferAccountIds.contains(inflow.accountId)
+                            || bidirectionalTransferAccountIds.contains(out.accountId)
+                    else { continue }
                     let distance = abs(out.date.timeIntervalSince(inflow.date))
                     guard distance <= window else { continue }
                     possibilities.append((out, inflow, distance))
@@ -196,5 +200,9 @@ enum TransferMatcher {
     static func isTransferAccountType(_ type: String?) -> Bool {
         guard let type = type?.lowercased() else { return false }
         return type == "credit" || type == "loan"
+    }
+
+    static func isBidirectionalTransferAccountType(_ type: String?) -> Bool {
+        type?.lowercased() == "investment"
     }
 }

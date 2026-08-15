@@ -130,6 +130,34 @@ final class ReimbursementAllocationTests: XCTestCase {
         XCTAssertEqual(candidates.map(\.id), [newestSource.id])
     }
 
+    func testCandidatesExcludeTransactionsFromExcludedAccounts() {
+        let source = transaction(id: "venmo", amount: -100)
+        let checkingPurchase = transaction(id: "dinner", amount: 80)
+        let investmentPurchase = transaction(id: "trade", amount: 80)
+        investmentPurchase.accountId = "investment"
+
+        let purchases = ReimbursementCandidateBuilder.candidates(
+            for: source,
+            in: [source, checkingPurchase, investmentPurchase],
+            index: .empty,
+            excludedAccountIDs: ["investment"],
+            categoryFor: { _ in .food }
+        )
+        XCTAssertEqual(purchases.map(\.id), [checkingPurchase.id])
+
+        let expense = transaction(id: "expense", amount: 100)
+        let checkingSource = transaction(id: "zelle", amount: -50)
+        let investmentSource = transaction(id: "dividend", amount: -50)
+        investmentSource.accountId = "investment"
+        let sources = ReimbursementSourceCandidateBuilder.candidates(
+            for: expense,
+            in: [expense, checkingSource, investmentSource],
+            index: .empty,
+            excludedAccountIDs: ["investment"]
+        )
+        XCTAssertEqual(sources.map(\.id), [checkingSource.id])
+    }
+
     func testAllocationRoundsToCents() throws {
         let context = try context()
         let source = transaction(id: "venmo", amount: -50)

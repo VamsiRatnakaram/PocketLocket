@@ -1,6 +1,24 @@
 import Foundation
 import SwiftData
 
+enum AccountTypeChoice: String, CaseIterable, Identifiable {
+    case depository
+    case credit
+    case loan
+    case investment
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .depository: "Banking"
+        case .credit: "Credit"
+        case .loan: "Loan"
+        case .investment: "Investment"
+        }
+    }
+}
+
 /// Local record of a bank account, stored on-device (SimpleFIN / imported).
 @Model
 final class AccountRecord {
@@ -10,6 +28,9 @@ final class AccountRecord {
     var officialName: String?
     var mask: String?
     var type: String?
+    /// User choice, kept separate so sync may refresh its inference without
+    /// overwriting an explicit classification.
+    var typeOverrideRaw: String?
     var subtype: String?
     var currentBalance: Double
     var availableBalance: Double?
@@ -22,6 +43,7 @@ final class AccountRecord {
         officialName: String?,
         mask: String?,
         type: String?,
+        typeOverrideRaw: String? = nil,
         subtype: String?,
         currentBalance: Double,
         availableBalance: Double?,
@@ -33,6 +55,7 @@ final class AccountRecord {
         self.officialName = officialName
         self.mask = mask
         self.type = type
+        self.typeOverrideRaw = typeOverrideRaw
         self.subtype = subtype
         self.currentBalance = currentBalance
         self.availableBalance = availableBalance
@@ -40,4 +63,8 @@ final class AccountRecord {
     }
 
     var displayName: String { officialName ?? name }
+
+    var resolvedType: String? {
+        typeOverrideRaw ?? type
+    }
 }

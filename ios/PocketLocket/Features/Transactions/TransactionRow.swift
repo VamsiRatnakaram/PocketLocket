@@ -34,7 +34,7 @@ struct TransactionRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(txn.title)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 HStack(spacing: 6) {
                     Text(txn.date, format: .dateTime.month().day())
                     if let accountLabel, !accountLabel.isEmpty {

@@ -77,8 +77,11 @@ enum SimpleFINMapper {
         accountType: String
     ) -> Double {
         let raw = Double(simpleFINAmount) ?? 0
-        if accountType == "investment", isContribution(description) {
-            return -abs(raw)
+        if accountType == "investment" {
+            if isOutgoingTransfer(description) { return abs(raw) }
+            if isContribution(description) || isIncomingTransfer(description) {
+                return -abs(raw)
+            }
         }
         return -raw
     }
@@ -136,6 +139,19 @@ enum SimpleFINMapper {
             || value.contains("participant contr")
             || value.contains("co contr")
             || value.contains("employer contr")
+    }
+
+    private static func isOutgoingTransfer(_ description: String?) -> Bool {
+        let value = (description ?? "").lowercased()
+        return value.contains("electronic funds transfer paid")
+            || value.contains("transfer paid")
+            || value.contains("withdrawal")
+    }
+
+    private static func isIncomingTransfer(_ description: String?) -> Bool {
+        let value = (description ?? "").lowercased()
+        return value.contains("electronic funds transfer received")
+            || value.contains("transfer received")
     }
 }
 
