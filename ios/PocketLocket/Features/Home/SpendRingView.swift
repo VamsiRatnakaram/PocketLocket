@@ -72,11 +72,11 @@ struct SpendRingView: View {
 
     private var centerLabel: some View {
         VStack(spacing: 2) {
-            Text(CurrencyFormatter.string(totalSpent))
+            Text(CurrencyFormatter.ringCenter(totalSpent))
                 .font(.system(.title, design: .rounded).weight(.bold))
                 .monospacedDigit()
                 .contentTransition(.numericText())
-            Text("of \(CurrencyFormatter.compact(monthlyBudget))")
+            Text("of \(CurrencyFormatter.ringCenter(monthlyBudget))")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
