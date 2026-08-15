@@ -17,19 +17,26 @@ struct AccountCard: View {
                 Text(account.displayName)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    Text(
+                        CurrencyFormatter.string(
+                            account.currentBalance,
+                            code: account.isoCurrencyCode
+                        )
+                    )
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
-
-            Spacer()
-
-            Text(CurrencyFormatter.string(account.currentBalance, code: account.isoCurrencyCode))
-                .font(.callout.weight(.semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
         }
         .padding(.vertical, 4)
     }

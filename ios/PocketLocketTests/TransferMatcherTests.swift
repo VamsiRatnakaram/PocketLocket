@@ -204,6 +204,27 @@ final class TransferMatcherTests: XCTestCase {
         XCTAssertTrue(TransferMatcher.isTransferAccountType("Credit"))
         XCTAssertFalse(TransferMatcher.isTransferAccountType("depository"))
         XCTAssertFalse(TransferMatcher.isTransferAccountType(nil))
+        XCTAssertTrue(
+            TransferMatcher.isBidirectionalTransferAccountType("investment")
+        )
+        XCTAssertFalse(
+            TransferMatcher.isBidirectionalTransferAccountType("credit")
+        )
+    }
+
+    func testMatchesInvestmentWithdrawalToBankDeposit() {
+        let investment = "investment"
+        let matches = TransferMatcher.match(
+            candidates: [
+                candidate("fidelity-out", investment, 4_005.31, 0),
+                candidate("bank-in", checking, -4_005.31, 0),
+            ],
+            transferAccountIds: [],
+            bidirectionalTransferAccountIds: [investment]
+        )
+
+        XCTAssertEqual(matches["fidelity-out"], matches["bank-in"])
+        XCTAssertNotNil(matches["fidelity-out"])
     }
 
     /// Numerically equal amounts in different currencies are not the two halves

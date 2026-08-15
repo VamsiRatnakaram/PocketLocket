@@ -79,6 +79,15 @@ final class SimpleFINTests: XCTestCase {
             0.57,
             accuracy: 0.001
         )
+        XCTAssertEqual(
+            SimpleFINMapper.appAmount(
+                from: "4005.31",
+                description: "Electronic Funds Transfer Paid (Cash)",
+                accountType: "investment"
+            ),
+            4005.31,
+            accuracy: 0.001
+        )
     }
 
     func testInferType() {
