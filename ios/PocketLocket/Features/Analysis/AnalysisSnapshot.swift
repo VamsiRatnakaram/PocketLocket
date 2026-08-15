@@ -110,6 +110,7 @@ final class AnalysisSnapshotCache {
         var dataHash: Int
         var rulesHash: Int
         var groupingRulesHash: Int = 0
+        var reimbursementsHash: Int = 0
         var excludedAccountsRaw: String
     }
 

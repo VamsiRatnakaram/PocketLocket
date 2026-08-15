@@ -101,6 +101,35 @@ final class TransactionListBuilderTests: XCTestCase {
         )
     }
 
+    func testFullyReimbursedExpenseIsNotInBudget() {
+        let expense = txn("dinner", name: "Dinner", amount: 120, day: 1)
+        let allocation = ReimbursementAllocationSpec(
+            id: "a1",
+            sourceTransactionID: "venmo",
+            expenseTransactionID: expense.id,
+            amount: 120
+        )
+        let index = ReimbursementAllocationIndex([allocation])
+
+        let counted = TransactionListBuilder.rows(
+            from: [expense],
+            criteria: .init(budget: .counted),
+            reimbursementIndex: index,
+            resolve: { _ in .food }
+        )
+        let excluded = TransactionListBuilder.rows(
+            from: [expense],
+            criteria: .init(budget: .excluded),
+            reimbursementIndex: index,
+            resolve: { _ in .food }
+        )
+
+        XCTAssertTrue(counted.isEmpty)
+        XCTAssertEqual(excluded.first?.id, expense.id)
+        XCTAssertEqual(excluded.first?.effectiveAmount, 0)
+        XCTAssertEqual(excluded.first?.reimbursedAmount, 120)
+    }
+
     func testAccountFilter() {
         XCTAssertEqual(rows(.init(accountId: "savings")).map(\.id), ["2"])
     }
