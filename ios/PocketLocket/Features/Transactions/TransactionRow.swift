@@ -5,17 +5,20 @@ struct TransactionRow: View {
     let category: SpendCategory
     let reimbursedAmount: Double
     let reimbursementSourceAmount: Double
+    let accountLabel: String?
 
     init(
         txn: TransactionRecord,
         category: SpendCategory,
         reimbursedAmount: Double = 0,
-        reimbursementSourceAmount: Double = 0
+        reimbursementSourceAmount: Double = 0,
+        accountLabel: String? = nil
     ) {
         self.txn = txn
         self.category = category
         self.reimbursedAmount = reimbursedAmount
         self.reimbursementSourceAmount = reimbursementSourceAmount
+        self.accountLabel = accountLabel
     }
 
     var body: some View {
@@ -34,6 +37,11 @@ struct TransactionRow: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(txn.date, format: .dateTime.month().day())
+                    if let accountLabel, !accountLabel.isEmpty {
+                        Text("• \(accountLabel)")
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                     if txn.pending {
                         Text("• Pending").foregroundStyle(.orange)
                     }
@@ -67,12 +75,22 @@ struct TransactionRow: View {
                     .monospacedDigit()
                     .foregroundStyle(txn.amount > 0 ? Color.primary : Color.green)
                 if reimbursedAmount > 0.005, txn.amount > 0 {
-                    Text("\(CurrencyFormatter.string(max(0, txn.amount - reimbursedAmount))) net")
+                    Text(
+                        CurrencyFormatter.string(
+                            max(0, txn.amount - reimbursedAmount),
+                            code: txn.isoCurrencyCode
+                        ) + " net"
+                    )
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 } else if reimbursementSourceAmount > 0.005 {
-                    Text("\(CurrencyFormatter.string(reimbursementSourceAmount)) applied")
+                    Text(
+                        CurrencyFormatter.string(
+                            reimbursementSourceAmount,
+                            code: txn.isoCurrencyCode
+                        ) + " applied"
+                    )
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()

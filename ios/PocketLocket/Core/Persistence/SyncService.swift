@@ -32,10 +32,21 @@ final class SyncService {
         // keeps going, and a fresh sync could start alongside it.
         let task = Task {
             defer { self.inFlight = nil }
-            try await self.refreshSimpleFIN(context: context)
-            // After new rows land, re-pair transfers across the whole history:
-            // the two legs of a card payoff routinely arrive in different syncs.
-            try TransferMatchService.recompute(in: context)
+            do {
+                try await self.refreshSimpleFIN(context: context)
+                // After new rows land, re-pair transfers across the whole
+                // history, then reconcile reimbursements against the same
+                // unsaved transaction state. Commit all three together.
+                try TransferMatchService.recompute(
+                    in: context,
+                    saveChanges: false
+                )
+                try ReimbursementAllocationService.reconcile(in: context)
+                try context.save()
+            } catch {
+                context.rollback()
+                throw error
+            }
         }
         inFlight = task
         try await task.value
@@ -84,7 +95,6 @@ final class SyncService {
                 )
             }
         }
-        try context.save()
     }
 
     private func upsertLocalAccount(id: String, name: String, balance: Double, currency: String, type: String, accountsByID: inout [String: AccountRecord], context: ModelContext) {

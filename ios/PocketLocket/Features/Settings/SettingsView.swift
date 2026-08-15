@@ -158,7 +158,7 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This deletes every account, transaction, category rule and merchant-grouping correction on this device. Keeping the connection lets the next sync pull your SimpleFIN data back; disconnecting means re-entering your setup token.")
+                Text("This deletes every account, transaction, category rule, merchant-grouping correction, and reimbursement allocation on this device. Keeping the connection lets the next sync pull your SimpleFIN data back; disconnecting means re-entering your setup token.")
             }
             .alert(
                 "Couldn’t Delete SimpleFIN Data",                isPresented: Binding(

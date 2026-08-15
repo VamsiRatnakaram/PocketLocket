@@ -913,11 +913,10 @@ private struct AnalysisDataDriver: View {
         }
     }
 
-    private var reimbursementIndex: ReimbursementAllocationIndex {
-        ReimbursementAllocationIndex(reimbursementAllocations)
-    }
-
-    private func analysisTransaction(_ transaction: TransactionRecord) -> AnalysisTransaction {
+    private func analysisTransaction(
+        _ transaction: TransactionRecord,
+        reimbursementIndex: ReimbursementAllocationIndex
+    ) -> AnalysisTransaction {
         AnalysisTransaction(
             record: transaction,
             effectiveAmount: reimbursementIndex.effectiveExpenseAmount(
@@ -1021,21 +1020,26 @@ private struct AnalysisDataDriver: View {
     private func refresh(_ request: Request) {
         let ruleSpecs = rules.map(CategoryRuleSpec.init(rule:))
         let included = includedTransactions
+        let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
         analysisCoordinator.refresh(
             request.analysis,
-            transactions: included.map(analysisTransaction),
+            transactions: included.map {
+                analysisTransaction($0, reimbursementIndex: reimbursementIndex)
+            },
             rules: ruleSpecs,
             groupingRules: groupingRules.map(MerchantGroupingRuleSpec.init(rule:))
         )
 
-        questionEntries = questionTransactions.map { transaction in
-            TransactionQuestionContext.Entry(
+        questionEntries = questionTransactions.compactMap { transaction in
+            let amount = reimbursementIndex.effectiveLedgerAmount(
+                transactionID: transaction.id,
+                originalAmount: transaction.amount
+            )
+            guard abs(amount) > 0.005 else { return nil }
+            return TransactionQuestionContext.Entry(
                 date: transaction.date,
                 title: transaction.title,
-                amount: reimbursementIndex.effectiveExpenseAmount(
-                    transactionID: transaction.id,
-                    originalAmount: transaction.amount
-                ),
+                amount: amount,
                 currency: transaction.isoCurrencyCode,
                 category: transaction.resolvedCategory(using: rules).displayName
             )
@@ -1043,7 +1047,9 @@ private struct AnalysisDataDriver: View {
 
         savingsCoordinator.refresh(
             request.savings,
-            transactions: suggestionTransactions.map(analysisTransaction),
+            transactions: suggestionTransactions.map {
+                analysisTransaction($0, reimbursementIndex: reimbursementIndex)
+            },
             rules: ruleSpecs,
             currentMonth: currentMonth,
             previousMonth: previousMonth,

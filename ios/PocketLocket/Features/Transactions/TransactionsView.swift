@@ -73,6 +73,18 @@ struct TransactionsView: View {
         txn.resolvedCategory(using: rules)
     }
 
+    private func accountLabel(for txn: TransactionRecord) -> String? {
+        guard let accountID = txn.accountId,
+              let account = accounts.first(where: { $0.id == accountID })
+        else { return nil }
+        let name = account.displayName
+        guard let mask = account.mask,
+              !mask.isEmpty,
+              !name.localizedCaseInsensitiveContains(mask)
+        else { return name }
+        return "\(name) ••••\(mask)"
+    }
+
     private func delete(_ txn: TransactionRecord) {
         ReimbursementAllocationService.deleteAllocations(
             referencing: [txn.id],
@@ -176,7 +188,8 @@ struct TransactionsView: View {
                                     txn: txn,
                                     category: row.category,
                                     reimbursedAmount: row.reimbursedAmount,
-                                    reimbursementSourceAmount: row.reimbursementSourceAmount
+                                    reimbursementSourceAmount: row.reimbursementSourceAmount,
+                                    accountLabel: accountLabel(for: txn)
                                 )
                             }
                             .contentShape(Rectangle())
@@ -189,7 +202,8 @@ struct TransactionsView: View {
                                 txn: txn,
                                 category: row.category,
                                 reimbursedAmount: row.reimbursedAmount,
-                                reimbursementSourceAmount: row.reimbursementSourceAmount
+                                reimbursementSourceAmount: row.reimbursementSourceAmount,
+                                accountLabel: accountLabel(for: txn)
                             )
                         }
                         .buttonStyle(PressableStyle(scale: 0.98))

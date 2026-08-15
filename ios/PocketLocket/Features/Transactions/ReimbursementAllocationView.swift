@@ -32,9 +32,14 @@ struct ReimbursementAllocationView: View {
     @State private var selectedLinkedTransaction: TransactionRecord?
     @State private var amountText = ""
     @State private var errorMessage: String?
+    @State private var indexCache =
+        DerivedCache<Int, ReimbursementAllocationIndex>()
 
     private var index: ReimbursementAllocationIndex {
-        ReimbursementAllocationIndex(allocations)
+        let key = RecordHash.reimbursements(allocations)
+        return indexCache.value(for: key) {
+            ReimbursementAllocationIndex(allocations)
+        }
     }
 
     private var focusedAllocations: [ReimbursementAllocation] {
@@ -94,7 +99,8 @@ struct ReimbursementAllocationView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        let candidateRows = candidates
+        return NavigationStack {
             List {
                 Section {
                     summary
@@ -128,7 +134,7 @@ struct ReimbursementAllocationView: View {
                             systemImage: "checkmark.circle",
                             description: Text("Remove an allocation to assign this money elsewhere.")
                         )
-                    } else if candidates.isEmpty {
+                    } else if candidateRows.isEmpty {
                         ContentUnavailableView(
                             direction == .fromSource ? "No matching purchases" : "No available reimbursements",
                             systemImage: direction == .fromSource ? "receipt" : "person.2",
@@ -137,7 +143,7 @@ struct ReimbursementAllocationView: View {
                                 : "Incoming payments appear here when they have money left to apply.")
                         )
                     } else {
-                        ForEach(candidates) { candidate in
+                        ForEach(candidateRows) { candidate in
                             Button { prepareAllocation(with: candidate) } label: {
                                 candidateRow(candidate)
                             }
@@ -346,15 +352,14 @@ struct ReimbursementAllocationView: View {
             )
         }
         let maximum = min(remainingAmount, counterpartyRemaining)
-        amountText = String(format: "%.2f", maximum)
+        amountText = ReimbursementAmountInput.string(maximum)
         selectedCounterparty = counterparty
     }
 
     private func applyPreparedAllocation() {
         guard let counterparty = selectedCounterparty else { return }
         defer { selectedCounterparty = nil }
-        let normalized = amountText.replacingOccurrences(of: ",", with: "")
-        guard let amount = Double(normalized) else {
+        guard let amount = ReimbursementAmountInput.amount(from: amountText) else {
             errorMessage = "Enter a valid amount."
             return
         }

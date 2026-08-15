@@ -30,7 +30,16 @@ struct MainTabView: View {
             // Backfill first so existing history (and CSV imports, which never
             // touch the sync path) gets paired even when there's no SimpleFIN
             // connection or the refresh below fails.
-            try? TransferMatchService.recompute(in: context)
+            do {
+                try TransferMatchService.recompute(
+                    in: context,
+                    saveChanges: false
+                )
+                try ReimbursementAllocationService.reconcile(in: context)
+                try context.save()
+            } catch {
+                context.rollback()
+            }
             try? await SyncService.shared.refresh(context: context)
         }
     }

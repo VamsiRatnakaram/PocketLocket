@@ -145,7 +145,12 @@ enum BackupService {
         guard let payload = try? JSONDecoder().decode(Payload.self, from: plaintext) else {
             throw BackupError.corruptFile
         }
-        return restore(payload, into: context)
+        do {
+            return try restore(payload, into: context)
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     // MARK: - Crypto
@@ -205,7 +210,7 @@ enum BackupService {
 
     // MARK: - Restore / merge
 
-    private static func restore(_ payload: Payload, into context: ModelContext) -> Int {
+    private static func restore(_ payload: Payload, into context: ModelContext) throws -> Int {
         for a in payload.accounts {
             let pid = a.plaidAccountId
             let exists = ((try? context.fetch(
@@ -269,6 +274,9 @@ enum BackupService {
             ))
         }
 
+        let existingAllocationIDs = Set(
+            (try? context.fetch(FetchDescriptor<ReimbursementAllocation>()).map(\.id)) ?? []
+        )
         let availableTransactionIDs = Set(
             (try? context.fetch(FetchDescriptor<TransactionRecord>()).map(\.id)) ?? []
         )
@@ -292,7 +300,11 @@ enum BackupService {
             ))
         }
 
-        try? context.save()
+        try ReimbursementAllocationService.reconcile(
+            in: context,
+            preserving: existingAllocationIDs
+        )
+        try context.save()
         return insertedTxns
     }
 }

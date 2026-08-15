@@ -255,7 +255,8 @@ struct TransactionDetailView: View {
                     .font(.headline)
                     .foregroundStyle(.green)
                 Text(applied > 0
-                    ? "\(CurrencyFormatter.string(applied)) applied • \(CurrencyFormatter.string(remaining)) remaining"
+                    ? "\(CurrencyFormatter.string(applied, code: txn.isoCurrencyCode)) applied • "
+                        + "\(CurrencyFormatter.string(remaining, code: txn.isoCurrencyCode)) remaining"
                     : "Apply money friends paid back to the purchases it covered.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -281,7 +282,8 @@ struct TransactionDetailView: View {
                     .font(.headline)
                     .foregroundStyle(.green)
                     Text(reimbursed > 0.005
-                        ? "\(CurrencyFormatter.string(reimbursed)) paid back • \(CurrencyFormatter.string(max(0, txn.amount - reimbursed))) net spending"
+                        ? "\(CurrencyFormatter.string(reimbursed, code: txn.isoCurrencyCode)) paid back • "
+                            + "\(CurrencyFormatter.string(max(0, txn.amount - reimbursed), code: txn.isoCurrencyCode)) net spending"
                         : "Assign incoming payments from friends directly to this purchase.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
