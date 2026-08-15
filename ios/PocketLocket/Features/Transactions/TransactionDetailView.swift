@@ -152,7 +152,7 @@ struct TransactionDetailView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(txn.title)
                     .font(.headline)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(txn.date, format: .dateTime.month().day().year())
                     .font(.caption)
                     .foregroundStyle(.secondary)
