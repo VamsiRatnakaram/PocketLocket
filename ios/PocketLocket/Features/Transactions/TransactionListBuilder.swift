@@ -115,12 +115,18 @@ enum TransactionListBuilder {
         category: SpendCategory
     ) -> Classification {
         guard transaction.amount < 0 else { return .expense }
-        guard category.isSpending else { return .income }
-        if category != .other { return .returns }
 
         let descriptor = "\(transaction.name) \(transaction.merchantName ?? "")".lowercased()
         let returnMarkers = ["refund", "return", "returned", "reversal"]
-        return returnMarkers.contains { descriptor.contains($0) } ? .returns : .income
+        if returnMarkers.contains(where: descriptor.contains) { return .returns }
+
+        // A user may categorize a Zelle/Venmo repayment as Dining, Groceries,
+        // etc. That describes what the money was for, not a merchant return.
+        // Only explicit refund wording may promote peer-to-peer money to Return.
+        if MerchantHeuristics.isPeerToPeer(descriptor) { return .income }
+
+        guard category.isSpending, category != .other else { return .income }
+        return .returns
     }
 
     static func sort(_ rows: [Row], by order: TransactionsView.SortOrder) -> [Row] {
