@@ -216,15 +216,52 @@ final class TransferMatcherTests: XCTestCase {
         let investment = "investment"
         let matches = TransferMatcher.match(
             candidates: [
-                candidate("fidelity-out", investment, 4_005.31, 0),
+                TransferMatcher.Candidate(
+                    id: "fidelity-out",
+                    accountId: investment,
+                    amount: 4_005.31,
+                    date: day(0),
+                    isExplicitTransfer: true
+                ),
                 candidate("bank-in", checking, -4_005.31, 0),
             ],
             transferAccountIds: [],
-            bidirectionalTransferAccountIds: [investment]
+            bidirectionalTransferAccountIds: [investment],
+            bankingAccountIds: [checking]
         )
 
         XCTAssertEqual(matches["fidelity-out"], matches["bank-in"])
         XCTAssertNotNil(matches["fidelity-out"])
+    }
+
+    func testInvestmentContributionCannotHideCardPurchase() {
+        let investment = "investment"
+        let matches = TransferMatcher.match(
+            candidates: [
+                candidate("card-purchase", card, 500, 0),
+                candidate("investment-contribution", investment, -500, 1),
+            ],
+            transferAccountIds: [card],
+            bidirectionalTransferAccountIds: [investment],
+            bankingAccountIds: [checking]
+        )
+
+        XCTAssertTrue(matches.isEmpty)
+    }
+
+    func testInvestmentMatchRequiresExplicitTransferDescriptor() {
+        let investment = "investment"
+        let matches = TransferMatcher.match(
+            candidates: [
+                candidate("investment-out", investment, 500, 0),
+                candidate("bank-in", checking, -500, 1),
+            ],
+            transferAccountIds: [],
+            bidirectionalTransferAccountIds: [investment],
+            bankingAccountIds: [checking]
+        )
+
+        XCTAssertTrue(matches.isEmpty)
     }
 
     /// Numerically equal amounts in different currencies are not the two halves

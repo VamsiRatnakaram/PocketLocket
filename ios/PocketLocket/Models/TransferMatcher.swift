@@ -30,13 +30,24 @@ enum TransferMatcher {
         /// Bucketing on the number alone would let 500 EUR balance 500 USD and
         /// silently drop half a grand of real spending out of the budget.
         let currency: String?
+        /// Investment accounts may transfer either direction, but only when
+        /// their own descriptor explicitly identifies a transfer.
+        let isExplicitTransfer: Bool
 
-        init(id: String, accountId: String, amount: Double, date: Date, currency: String? = nil) {
+        init(
+            id: String,
+            accountId: String,
+            amount: Double,
+            date: Date,
+            currency: String? = nil,
+            isExplicitTransfer: Bool = false
+        ) {
             self.id = id
             self.accountId = accountId
             self.amount = amount
             self.date = date
             self.currency = currency
+            self.isExplicitTransfer = isExplicitTransfer
         }
     }
 
@@ -82,6 +93,7 @@ enum TransferMatcher {
         candidates: [Candidate],
         transferAccountIds: Set<String>,
         bidirectionalTransferAccountIds: Set<String> = [],
+        bankingAccountIds: Set<String> = [],
         windowInDays: Int = defaultWindowInDays
     ) -> [String: String] {
         // Bucket by currency and exact magnitude in cents. A transfer moves an
@@ -121,9 +133,19 @@ enum TransferMatcher {
                     // loan account. Accepting a credit/loan account on either
                     // side let a card purchase pair with an unrelated checking
                     // deposit and erase real spending from the budget.
-                    guard transferAccountIds.contains(inflow.accountId)
-                            || bidirectionalTransferAccountIds.contains(inflow.accountId)
-                            || bidirectionalTransferAccountIds.contains(out.accountId)
+                    let creditOrLoanPayment =
+                        transferAccountIds.contains(inflow.accountId)
+                    let investmentOutflow =
+                        bidirectionalTransferAccountIds.contains(out.accountId)
+                            && out.isExplicitTransfer
+                            && bankingAccountIds.contains(inflow.accountId)
+                    let investmentInflow =
+                        bidirectionalTransferAccountIds.contains(inflow.accountId)
+                            && inflow.isExplicitTransfer
+                            && bankingAccountIds.contains(out.accountId)
+                    guard creditOrLoanPayment
+                            || investmentOutflow
+                            || investmentInflow
                     else { continue }
                     let distance = abs(out.date.timeIntervalSince(inflow.date))
                     guard distance <= window else { continue }

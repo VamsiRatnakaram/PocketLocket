@@ -13,6 +13,10 @@ final class MerchantHeuristicsTests: XCTestCase {
         )
         XCTAssertEqual(
             MerchantHeuristics.category(for: "contribution"),
+            nil
+        )
+        XCTAssertNotEqual(
+            MerchantHeuristics.category(for: "ACTBLUE POLITICAL CONTRIBUTION"),
             .transfer
         )
     }

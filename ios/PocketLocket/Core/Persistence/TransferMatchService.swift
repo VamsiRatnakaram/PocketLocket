@@ -38,6 +38,11 @@ enum TransferMatchService {
                 }
                 .map(\.id)
         )
+        let bankingAccountIds = Set(
+            accounts
+                .filter { $0.resolvedType == "depository" }
+                .map(\.id)
+        )
 
         let matches: [String: String]
         if transferAccountIds.isEmpty && bidirectionalTransferAccountIds.isEmpty {
@@ -53,13 +58,19 @@ enum TransferMatchService {
                     accountId: accountId,
                     amount: txn.amount,
                     date: txn.date,
-                    currency: txn.isoCurrencyCode
+                    currency: txn.isoCurrencyCode,
+                    isExplicitTransfer:
+                        bidirectionalTransferAccountIds.contains(accountId)
+                            && SimpleFINMapper.isExplicitInvestmentTransfer(
+                                txn.name
+                            )
                 )
             }
             matches = TransferMatcher.match(
                 candidates: candidates,
                 transferAccountIds: transferAccountIds,
-                bidirectionalTransferAccountIds: bidirectionalTransferAccountIds
+                bidirectionalTransferAccountIds: bidirectionalTransferAccountIds,
+                bankingAccountIds: bankingAccountIds
             )
         }
 

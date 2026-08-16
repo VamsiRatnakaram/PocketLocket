@@ -125,6 +125,11 @@ struct AccountDetailView: View {
             set: { type in
                 account.typeOverrideRaw = type?.rawValue
                 do {
+                    try TransferMatchService.recompute(
+                        in: context,
+                        saveChanges: false
+                    )
+                    try ReimbursementAllocationService.reconcile(in: context)
                     try context.save()
                 } catch {
                     context.rollback()

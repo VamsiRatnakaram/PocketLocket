@@ -153,6 +153,10 @@ enum SimpleFINMapper {
         return value.contains("electronic funds transfer received")
             || value.contains("transfer received")
     }
+
+    static func isExplicitInvestmentTransfer(_ description: String?) -> Bool {
+        isOutgoingTransfer(description) || isIncomingTransfer(description)
+    }
 }
 
 /// Talks to a SimpleFIN Bridge directly from the device (read-only). No backend
