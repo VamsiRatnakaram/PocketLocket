@@ -85,6 +85,8 @@ final class SyncService {
             if becameInvestment {
                 excludeFromSpending(accountId)
             }
+            let resolvedAccountType =
+                accountsByID[accountId]?.resolvedType ?? accountType
             for txn in account.transactions ?? [] {
                 // SimpleFIN transaction ids can repeat across accounts, so namespace them.
                 upsertLocalTxn(
@@ -93,7 +95,7 @@ final class SyncService {
                     amount: SimpleFINMapper.appAmount(
                         from: txn.amount,
                         description: txn.description,
-                        accountType: accountType
+                        accountType: resolvedAccountType
                     ),
                     date: txn.posted.map { Date(timeIntervalSince1970: $0) } ?? Date(),
                     pending: txn.pending ?? false,

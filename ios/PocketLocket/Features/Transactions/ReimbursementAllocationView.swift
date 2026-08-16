@@ -2,9 +2,18 @@ import SwiftData
 import SwiftUI
 
 struct ReimbursementAllocationView: View {
-    private enum Direction {
+    private enum Direction: Hashable {
         case fromSource
         case toExpense
+    }
+
+    private struct CandidateKey: Equatable {
+        let direction: Direction
+        let transactionID: String
+        let transactionsHash: Int
+        let rulesHash: Int
+        let allocationsHash: Int
+        let excludedAccountsRaw: String
     }
 
     private let transaction: TransactionRecord
@@ -35,6 +44,8 @@ struct ReimbursementAllocationView: View {
     @State private var errorMessage: String?
     @State private var indexCache =
         DerivedCache<Int, ReimbursementAllocationIndex>()
+    @State private var candidateCache =
+        DerivedCache<CandidateKey, [TransactionRecord]>()
 
     private var index: ReimbursementAllocationIndex {
         let key = RecordHash.reimbursements(allocations)
@@ -74,15 +85,27 @@ struct ReimbursementAllocationView: View {
         }
     }
 
-    private var candidates: [TransactionRecord] {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var unsearchedCandidates: [TransactionRecord] {
+        let key = CandidateKey(
+            direction: direction,
+            transactionID: transaction.id,
+            transactionsHash: RecordHash.transactions(transactions),
+            rulesHash: RecordHash.rules(rules),
+            allocationsHash: RecordHash.reimbursements(allocations),
+            excludedAccountsRaw: excludedAccountsRaw
+        )
+        return candidateCache.value(for: key) {
+            buildCandidates()
+        }
+    }
+
+    private func buildCandidates() -> [TransactionRecord] {
         let excludedAccountIDs = SpendingAccountFilter.excludedIds(
             from: excludedAccountsRaw
         )
-        let unfiltered: [TransactionRecord]
         switch direction {
         case .fromSource:
-            unfiltered = ReimbursementCandidateBuilder.candidates(
+            return ReimbursementCandidateBuilder.candidates(
                 for: transaction,
                 in: transactions,
                 index: index,
@@ -90,14 +113,18 @@ struct ReimbursementAllocationView: View {
                 categoryFor: { $0.resolvedCategory(using: rules) }
             )
         case .toExpense:
-            unfiltered = ReimbursementSourceCandidateBuilder.candidates(
+            return ReimbursementSourceCandidateBuilder.candidates(
                 for: transaction,
                 in: transactions,
                 index: index,
                 excludedAccountIDs: excludedAccountIDs
             )
         }
-        return unfiltered.filter {
+    }
+
+    private var candidates: [TransactionRecord] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return unsearchedCandidates.filter {
             query.isEmpty
                 || $0.title.localizedCaseInsensitiveContains(query)
                 || $0.name.localizedCaseInsensitiveContains(query)

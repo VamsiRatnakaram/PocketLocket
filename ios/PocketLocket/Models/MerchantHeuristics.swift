@@ -30,7 +30,7 @@ enum MerchantHeuristics {
         ("vanguard", .transfer), ("charles schwab", .transfer), ("wealthfront", .transfer),
         ("betterment", .transfer), ("acorns", .transfer), ("brokerage", .transfer),
         ("401k", .transfer), ("roth ira", .transfer),
-        ("reinvestment", .transfer), ("contribution", .transfer),
+        ("reinvestment", .transfer),
         ("partic contr", .transfer), ("co contr", .transfer),
 
         // 1b) Credit card issuers paying off a card from a linked bank account
