@@ -11,6 +11,7 @@ struct ManualTransactionView: View {
     let editing: TransactionRecord?
 
     @Query private var rules: [CategoryRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
 
     @State private var amount: Double = 0
     @State private var isExpense = true
@@ -18,6 +19,7 @@ struct ManualTransactionView: View {
     @State private var date = Date()
     @State private var category: SpendCategory = .other
     @State private var didResolveCategory = false
+    @State private var errorMessage: String?
 
     init(editing: TransactionRecord? = nil) {
         self.editing = editing
@@ -39,7 +41,33 @@ struct ManualTransactionView: View {
     }
 
     private var isValid: Bool {
-        amount > 0 && !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        amount > 0
+            && !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && allocationConstraintMessage == nil
+    }
+
+    private var allocationConstraintMessage: String? {
+        guard let editing else { return nil }
+        let index = ReimbursementAllocationIndex(reimbursementAllocations)
+        let sourced = index.allocatedFromSource(editing.id)
+        if sourced > 0.005 {
+            guard !isExpense else {
+                return "Remove this transaction’s reimbursement allocations before changing it to an expense."
+            }
+            guard amount + 0.005 >= sourced else {
+                return "Amount received must stay at least \(CurrencyFormatter.string(sourced, code: editing.isoCurrencyCode))."
+            }
+        }
+        let reimbursed = index.allocatedToExpense(editing.id)
+        if reimbursed > 0.005 {
+            guard isExpense else {
+                return "Remove this purchase’s reimbursements before changing it to income."
+            }
+            guard amount + 0.005 >= reimbursed else {
+                return "Purchase amount must stay at least \(CurrencyFormatter.string(reimbursed, code: editing.isoCurrencyCode))."
+            }
+        }
+        return nil
     }
 
     var body: some View {
@@ -59,6 +87,11 @@ struct ManualTransactionView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 120)
+                    }
+                } footer: {
+                    if let allocationConstraintMessage {
+                        Text(allocationConstraintMessage)
+                            .foregroundStyle(.red)
                     }
                 }
 
@@ -88,6 +121,17 @@ struct ManualTransactionView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .platformPresentationCornerRadius(30)
+            .alert(
+                "Couldn’t Save Transaction",
+                isPresented: Binding(
+                    get: { errorMessage != nil },
+                    set: { if !$0 { errorMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "Please try again.")
+            }
         }
     }
 
@@ -116,8 +160,14 @@ struct ManualTransactionView: View {
                 logoURL: nil, accountId: "manual-cash"
             ))
         }
-        try? context.save()
-        dismiss()
+        do {
+            try ReimbursementAllocationService.reconcile(in: context)
+            try context.save()
+            dismiss()
+        } catch {
+            context.rollback()
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func ensureCashAccount() {

@@ -204,4 +204,173 @@ final class ReimbursementAllocationTests: XCTestCase {
         )
         XCTAssertEqual(allocation.amount, 12.34, accuracy: 0.001)
     }
+
+    func testStaleQuerySnapshotCannotOverallocateSource() throws {
+        let context = try context()
+        let source = transaction(id: "venmo", amount: -100)
+        let firstExpense = transaction(id: "dinner", amount: 100)
+        let secondExpense = transaction(id: "tickets", amount: 100)
+        [source, firstExpense, secondExpense].forEach(context.insert)
+
+        _ = try ReimbursementAllocationService.allocate(
+            amount: 80,
+            from: source,
+            to: firstExpense,
+            existing: [],
+            in: context
+        )
+
+        XCTAssertThrowsError(
+            try ReimbursementAllocationService.allocate(
+                amount: 30,
+                from: source,
+                to: secondExpense,
+                existing: [], // Simulates @Query before its next publication.
+                in: context
+            )
+        )
+        XCTAssertEqual(
+            try context.fetch(FetchDescriptor<ReimbursementAllocation>()).count,
+            1
+        )
+    }
+
+    func testReconcileTrimsAllocationsWhenSourceShrinks() throws {
+        let context = try context()
+        let source = transaction(id: "venmo", amount: -100)
+        let firstExpense = transaction(id: "dinner", amount: 100)
+        let secondExpense = transaction(id: "tickets", amount: 100)
+        let first = ReimbursementAllocation(
+            id: "a",
+            sourceTransactionID: source.id,
+            expenseTransactionID: firstExpense.id,
+            amount: 70,
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        let second = ReimbursementAllocation(
+            id: "b",
+            sourceTransactionID: source.id,
+            expenseTransactionID: secondExpense.id,
+            amount: 30,
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+        [source, firstExpense, secondExpense].forEach(context.insert)
+        [first, second].forEach(context.insert)
+        try context.save()
+
+        source.amount = -40
+        try ReimbursementAllocationService.reconcile(in: context)
+        try context.save()
+
+        let remaining = try context.fetch(FetchDescriptor<ReimbursementAllocation>())
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining.first?.id, "a")
+        XCTAssertEqual(remaining.first?.amount ?? 0, 40, accuracy: 0.001)
+    }
+
+    func testReconcileDeletesInvalidCurrencyOrSignLinks() throws {
+        let context = try context()
+        let source = transaction(id: "venmo", amount: -50)
+        let expense = transaction(id: "dinner", amount: 50)
+        let allocation = ReimbursementAllocation(
+            sourceTransactionID: source.id,
+            expenseTransactionID: expense.id,
+            amount: 20
+        )
+        [source, expense].forEach(context.insert)
+        context.insert(allocation)
+        try context.save()
+
+        expense.isoCurrencyCode = "EUR"
+        try ReimbursementAllocationService.reconcile(in: context)
+        try context.save()
+
+        XCTAssertTrue(
+            try context.fetch(FetchDescriptor<ReimbursementAllocation>()).isEmpty
+        )
+    }
+
+    func testReconcilePreservesExistingAllocationBeforeImportedRows() throws {
+        let context = try context()
+        let source = transaction(id: "venmo", amount: -100)
+        let firstExpense = transaction(id: "existing-expense", amount: 100)
+        let secondExpense = transaction(id: "imported-expense", amount: 100)
+        let existing = ReimbursementAllocation(
+            id: "existing",
+            sourceTransactionID: source.id,
+            expenseTransactionID: firstExpense.id,
+            amount: 80,
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+        let imported = ReimbursementAllocation(
+            id: "imported",
+            sourceTransactionID: source.id,
+            expenseTransactionID: secondExpense.id,
+            amount: 30,
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        [source, firstExpense, secondExpense].forEach(context.insert)
+        [existing, imported].forEach(context.insert)
+        try context.save()
+
+        try ReimbursementAllocationService.reconcile(
+            in: context,
+            preserving: [existing.id]
+        )
+        try context.save()
+
+        let allocations = try context.fetch(FetchDescriptor<ReimbursementAllocation>())
+        XCTAssertEqual(allocations.first { $0.id == existing.id }?.amount, 80)
+        XCTAssertEqual(allocations.first { $0.id == imported.id }?.amount, 20)
+    }
+
+    func testEffectiveLedgerAmountRemovesBothAppliedSides() {
+        let index = ReimbursementAllocationIndex([
+            ReimbursementAllocationSpec(
+                id: "a",
+                sourceTransactionID: "venmo",
+                expenseTransactionID: "dinner",
+                amount: 50
+            )
+        ])
+
+        XCTAssertEqual(
+            index.effectiveLedgerAmount(transactionID: "dinner", originalAmount: 100),
+            50
+        )
+        XCTAssertEqual(
+            index.effectiveLedgerAmount(transactionID: "venmo", originalAmount: -50),
+            0
+        )
+    }
+
+    func testAmountInputUsesLocaleDecimalSeparator() {
+        let german = Locale(identifier: "de_DE")
+        XCTAssertEqual(
+            ReimbursementAmountInput.amount(from: "1,50", locale: german) ?? 0,
+            1.5,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ReimbursementAmountInput.string(1.5, locale: german),
+            "1,50"
+        )
+    }
+
+    func testMatchedTransferCannotBeReimbursementSource() throws {
+        let context = try context()
+        let source = transaction(id: "transfer", amount: -50)
+        source.transferPairId = "pair"
+        let expense = transaction(id: "dinner", amount: 50)
+
+        XCTAssertThrowsError(
+            try ReimbursementAllocationService.allocate(
+                amount: 20,
+                from: source,
+                to: expense,
+                existing: [],
+                in: context
+            )
+        )
+    }
 }

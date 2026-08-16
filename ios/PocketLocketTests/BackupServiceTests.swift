@@ -47,8 +47,13 @@ final class BackupServiceTests: XCTestCase {
     func testEncryptedRoundTripPreservesData() throws {
         let source = try makeContext()
         try seed(source)
+        let sourceID = "sf-1-a"
         let sourceTransaction = try XCTUnwrap(
-            source.fetch(FetchDescriptor<TransactionRecord>()).first
+            source.fetch(
+                FetchDescriptor<TransactionRecord>(
+                    predicate: #Predicate { $0.id == sourceID }
+                )
+            ).first
         )
         sourceTransaction.categoryOverride = .food
         try source.save()
@@ -72,7 +77,11 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(groupingRule.groupName, "Coffee")
         XCTAssertFalse(groupingRule.groupID.isEmpty)
         let restoredTransaction = try XCTUnwrap(
-            dest.fetch(FetchDescriptor<TransactionRecord>()).first
+            dest.fetch(
+                FetchDescriptor<TransactionRecord>(
+                    predicate: #Predicate { $0.id == sourceID }
+                )
+            ).first
         )
         XCTAssertEqual(restoredTransaction.categoryOverride, .food)
         let restoredAllocation = try XCTUnwrap(
