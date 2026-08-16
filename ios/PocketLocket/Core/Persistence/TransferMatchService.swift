@@ -24,12 +24,23 @@ enum TransferMatchService {
 
         let transferAccountIds = Set(
             accounts
-                .filter { TransferMatcher.isTransferAccountType($0.type) }
+                .filter {
+                    TransferMatcher.isTransferAccountType($0.resolvedType)
+                }
+                .map(\.id)
+        )
+        let bidirectionalTransferAccountIds = Set(
+            accounts
+                .filter {
+                    TransferMatcher.isBidirectionalTransferAccountType(
+                        $0.resolvedType
+                    )
+                }
                 .map(\.id)
         )
 
         let matches: [String: String]
-        if transferAccountIds.isEmpty {
+        if transferAccountIds.isEmpty && bidirectionalTransferAccountIds.isEmpty {
             // No card or loan linked, so nothing can legitimately pair. Still
             // run the clearing pass below in case an account was unlinked or
             // retyped since the last run.
@@ -45,7 +56,11 @@ enum TransferMatchService {
                     currency: txn.isoCurrencyCode
                 )
             }
-            matches = TransferMatcher.match(candidates: candidates, transferAccountIds: transferAccountIds)
+            matches = TransferMatcher.match(
+                candidates: candidates,
+                transferAccountIds: transferAccountIds,
+                bidirectionalTransferAccountIds: bidirectionalTransferAccountIds
+            )
         }
 
         var changed = 0

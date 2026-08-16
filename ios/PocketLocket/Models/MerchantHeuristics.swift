@@ -30,6 +30,8 @@ enum MerchantHeuristics {
         ("vanguard", .transfer), ("charles schwab", .transfer), ("wealthfront", .transfer),
         ("betterment", .transfer), ("acorns", .transfer), ("brokerage", .transfer),
         ("401k", .transfer), ("roth ira", .transfer),
+        ("reinvestment", .transfer), ("contribution", .transfer),
+        ("partic contr", .transfer), ("co contr", .transfer),
 
         // 1b) Credit card issuers paying off a card from a linked bank account
         //     use their own short-form descriptors (e.g. "CAPITAL ONE MOBILE
@@ -52,7 +54,8 @@ enum MerchantHeuristics {
         // 2) Income (inflows).
         ("payroll", .income), ("paycheck", .income), ("direct deposit", .income),
         ("direct dep", .income), ("salary", .income), ("dividend", .income),
-        ("interest paid", .income), ("tax refund", .income), ("irs treas", .income),
+        ("interest paid", .income), ("interest earned", .income),
+        ("tax refund", .income), ("irs treas", .income),
         ("reimbursement", .income),
 
         // 3) Specific multi-word merchants (before the generic keywords below).

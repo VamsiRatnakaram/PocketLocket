@@ -69,6 +69,23 @@ enum SimpleFINMapper {
         -(Double(simpleFINAmount) ?? 0)
     }
 
+    /// Investment providers can report payroll/employer contributions as cash
+    /// debits even though they are money entering the investment account.
+    static func appAmount(
+        from simpleFINAmount: String,
+        description: String?,
+        accountType: String
+    ) -> Double {
+        let raw = Double(simpleFINAmount) ?? 0
+        if accountType == "investment" {
+            if isOutgoingTransfer(description) { return abs(raw) }
+            if isContribution(description) || isIncomingTransfer(description) {
+                return -abs(raw)
+            }
+        }
+        return -raw
+    }
+
     static func inferType(name: String?) -> String {
         let lower = (name ?? "").lowercased()
         if lower.contains("credit") || lower.contains("card") || lower.contains("amex")
@@ -79,7 +96,62 @@ enum SimpleFINMapper {
             || lower.contains("line of credit") || lower.contains("auto finance") {
             return "loan"
         }
+        let investmentMarkers = [
+            "investment", "brokerage", "retirement", "401", "403", "457",
+            "ira", "roth", "health savings", "hsa", "espp"
+        ]
+        if investmentMarkers.contains(where: lower.contains) {
+            return "investment"
+        }
         return "depository"
+    }
+
+    static func inferType(
+        name: String?,
+        transactionDescriptions: [String]
+    ) -> String {
+        let namedType = inferType(name: name)
+        guard namedType == "depository" else { return namedType }
+        let activityMarkers = [
+            "dividend received",
+            "reinvestment",
+            "capital gain",
+            "interest earned cash"
+        ]
+        let hasInvestmentActivity = transactionDescriptions.contains { description in
+            let lower = description.lowercased()
+            return activityMarkers.contains(where: lower.contains)
+        }
+        return hasInvestmentActivity ? "investment" : namedType
+    }
+
+    static func shouldDefaultExclude(
+        previousType: String?,
+        newType: String
+    ) -> Bool {
+        newType == "investment" && previousType != "investment"
+    }
+
+    private static func isContribution(_ description: String?) -> Bool {
+        let value = (description ?? "").lowercased()
+        return value.contains("contribution")
+            || value.contains("partic contr")
+            || value.contains("participant contr")
+            || value.contains("co contr")
+            || value.contains("employer contr")
+    }
+
+    private static func isOutgoingTransfer(_ description: String?) -> Bool {
+        let value = (description ?? "").lowercased()
+        return value.contains("electronic funds transfer paid")
+            || value.contains("transfer paid")
+            || value.contains("withdrawal")
+    }
+
+    private static func isIncomingTransfer(_ description: String?) -> Bool {
+        let value = (description ?? "").lowercased()
+        return value.contains("electronic funds transfer received")
+            || value.contains("transfer received")
     }
 }
 

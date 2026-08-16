@@ -17,12 +17,21 @@ struct AccountsView: View {
     }
     private var balanceSummary: AccountBalanceSummary.Totals {
         AccountBalanceSummary.totals(for: accounts.map {
-            AccountBalanceSummary.Account(type: $0.type, balance: $0.currentBalance)
+            AccountBalanceSummary.Account(
+                type: $0.resolvedType,
+                balance: $0.currentBalance
+            )
         })
     }
     private var assets: Double { balanceSummary.assets }
     private var liabilities: Double { balanceSummary.liabilities }
     private var netWorth: Double { balanceSummary.netWorth }
+    private var investmentAccounts: [AccountRecord] {
+        accounts.filter { $0.resolvedType == "investment" }
+    }
+    private var bankingAccounts: [AccountRecord] {
+        accounts.filter { $0.resolvedType != "investment" }
+    }
 
     private var importAlertBinding: Binding<Bool> {
         Binding(get: { importMessage != nil }, set: { if !$0 { importMessage = nil } })
@@ -93,25 +102,28 @@ struct AccountsView: View {
                     }
                 }
 
-                Section {
-                    ForEach(accounts) { account in
-                        Button {
-                            excludedAccountsRaw = SpendingAccountFilter.toggling(account.id, in: excludedAccountsRaw)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: isIncluded(account) ? "checkmark.circle.fill" : "circle")
-                                    .font(.title3)
-                                    .foregroundStyle(isIncluded(account) ? Color.accentColor : Color.secondary)
-                                AccountCard(account: account)
-                                    .opacity(isIncluded(account) ? 1 : 0.45)
-                            }
+                if !bankingAccounts.isEmpty {
+                    Section {
+                        ForEach(bankingAccounts) { account in
+                            accountRow(account)
                         }
-                        .buttonStyle(.plain)
+                    } header: {
+                        Text("Banking & Credit")
+                    } footer: {
+                        Text("Use the circle to include or exclude an account from spending. Tap the account for details.")
                     }
-                } header: {
-                    Text("Accounts")
-                } footer: {
-                    Text("Tap an account to include or exclude it from the spending ring and insights.")
+                }
+
+                if !investmentAccounts.isEmpty {
+                    Section {
+                        ForEach(investmentAccounts) { account in
+                            accountRow(account)
+                        }
+                    } header: {
+                        Text("Investments")
+                    } footer: {
+                        Text("Investment accounts are excluded from spending by default. Use the circle to include one; tap the account for details.")
+                    }
                 }
             }
             .navigationTitle("Accounts")
@@ -154,6 +166,37 @@ struct AccountsView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func accountRow(_ account: AccountRecord) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                excludedAccountsRaw = SpendingAccountFilter.toggling(
+                    account.id,
+                    in: excludedAccountsRaw
+                )
+            } label: {
+                Image(systemName: isIncluded(account) ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isIncluded(account) ? Color.accentColor : Color.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                isIncluded(account)
+                    ? "Exclude \(account.displayName) from spending"
+                    : "Include \(account.displayName) in spending"
+            )
+
+            NavigationLink {
+                AccountDetailView(account: account)
+            } label: {
+                AccountCard(account: account)
+                    .opacity(isIncluded(account) ? 1 : 0.45)
+            }
+            .foregroundStyle(.primary)
         }
     }
 }
