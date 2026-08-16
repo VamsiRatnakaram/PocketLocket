@@ -137,7 +137,17 @@ final class SyncService {
 enum SimpleFINDataStore {
     static func deleteSyncedData(in context: ModelContext) throws {
         let transactions = try context.fetch(FetchDescriptor<TransactionRecord>())
-        for transaction in transactions where transaction.plaidTransactionId.hasPrefix("sf-") {
+        let deletedTransactions = transactions.filter {
+            $0.plaidTransactionId.hasPrefix("sf-")
+        }
+        let deletedIDs = Set(deletedTransactions.map(\.id))
+        let allocations = try context.fetch(FetchDescriptor<ReimbursementAllocation>())
+        ReimbursementAllocationService.deleteAllocations(
+            referencing: deletedIDs,
+            from: allocations,
+            in: context
+        )
+        for transaction in deletedTransactions {
             context.delete(transaction)
         }
 

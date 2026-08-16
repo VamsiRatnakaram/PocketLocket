@@ -22,6 +22,7 @@ final class SavingsSuggestionsCache {
     struct InputsKey: Equatable, Sendable {
         var dataHash: Int
         var rulesHash: Int
+        var reimbursementsHash: Int = 0
         var excludedAccountsRaw: String
         var monthlyBudget: Double
         /// The month the suggestions describe. Without it, leaving the app open

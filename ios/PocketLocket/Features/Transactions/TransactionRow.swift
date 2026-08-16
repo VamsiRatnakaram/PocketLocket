@@ -3,6 +3,20 @@ import SwiftUI
 struct TransactionRow: View {
     let txn: TransactionRecord
     let category: SpendCategory
+    let reimbursedAmount: Double
+    let reimbursementSourceAmount: Double
+
+    init(
+        txn: TransactionRecord,
+        category: SpendCategory,
+        reimbursedAmount: Double = 0,
+        reimbursementSourceAmount: Double = 0
+    ) {
+        self.txn = txn
+        self.category = category
+        self.reimbursedAmount = reimbursedAmount
+        self.reimbursementSourceAmount = reimbursementSourceAmount
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -26,6 +40,14 @@ struct TransactionRow: View {
                     if TransactionListBuilder.classify(txn, category: category) == .returns {
                         Text("• Return").foregroundStyle(.green)
                     }
+                    if reimbursedAmount > 0.005 {
+                        Text("• Reimbursed")
+                            .foregroundStyle(.green)
+                    }
+                    if reimbursementSourceAmount > 0.005 {
+                        Text("• Applied")
+                            .foregroundStyle(.green)
+                    }
                     // The spend ring silently drops non-spending categories.
                     // Without a marker there's no way to tell an excluded
                     // transaction from one the app simply never imported.
@@ -39,10 +61,23 @@ struct TransactionRow: View {
 
             Spacer()
 
-            Text(amountText)
-                .font(.callout)
-                .monospacedDigit()
-                .foregroundStyle(txn.amount > 0 ? Color.primary : Color.green)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(amountText)
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(txn.amount > 0 ? Color.primary : Color.green)
+                if reimbursedAmount > 0.005, txn.amount > 0 {
+                    Text("\(CurrencyFormatter.string(max(0, txn.amount - reimbursedAmount))) net")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                } else if reimbursementSourceAmount > 0.005 {
+                    Text("\(CurrencyFormatter.string(reimbursementSourceAmount)) applied")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
         }
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -10,6 +10,7 @@ struct CategoryDetailView: View {
 
     @Query private var transactions: [TransactionRecord]
     @Query private var rules: [CategoryRule]
+    @Query private var reimbursementAllocations: [ReimbursementAllocation]
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
     @Environment(\.modelContext) private var context
     @State private var detail: TransactionRecord?
@@ -34,6 +35,7 @@ struct CategoryDetailView: View {
     private struct ItemsKey: Equatable {
         var dataHash: Int
         var rulesHash: Int
+        var reimbursementsHash: Int
         var category: SpendCategory
         var excludedAccountsRaw: String
     }
@@ -48,10 +50,12 @@ struct CategoryDetailView: View {
         let key = ItemsKey(
             dataHash: RecordHash.transactions(transactions),
             rulesHash: RecordHash.rules(rules),
+            reimbursementsHash: RecordHash.reimbursements(reimbursementAllocations),
             category: category,
             excludedAccountsRaw: excludedAccountsRaw
         )
         return itemsCache.value(for: key) {
+            let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
             let excluded = SpendingAccountFilter.excludedIds(from: excludedAccountsRaw)
             return transactions
                 .filter {
@@ -59,7 +63,13 @@ struct CategoryDetailView: View {
                         && SpendingAccountFilter.isIncluded($0.accountId, excluded: excluded)
                         && $0.resolvedCategory(using: rules) == category
                 }
-                .sorted { $0.amount > $1.amount }
+                .sorted {
+                    reimbursementIndex.effectiveExpenseAmount(
+                        transactionID: $0.id, originalAmount: $0.amount
+                    ) > reimbursementIndex.effectiveExpenseAmount(
+                        transactionID: $1.id, originalAmount: $1.amount
+                    )
+                }
         }
     }
 
@@ -68,7 +78,13 @@ struct CategoryDetailView: View {
     }
 
     private func content(_ items: [TransactionRecord]) -> some View {
-        let total = items.reduce(0) { $0 + $1.amount }
+        let reimbursementIndex = ReimbursementAllocationIndex(reimbursementAllocations)
+        let total = items.reduce(0) {
+            $0 + reimbursementIndex.effectiveExpenseAmount(
+                transactionID: $1.id,
+                originalAmount: $1.amount
+            )
+        }
         return List {
             Section {
                 ForEach(items) { txn in
@@ -78,7 +94,11 @@ struct CategoryDetailView: View {
                                 Image(systemName: selectedTransactionIDs.contains(txn.id) ? "checkmark.circle.fill" : "circle")
                                     .font(.title3)
                                     .foregroundStyle(selectedTransactionIDs.contains(txn.id) ? Color.accentColor : Color.secondary)
-                                TransactionRow(txn: txn, category: category)
+                                TransactionRow(
+                                    txn: txn,
+                                    category: category,
+                                    reimbursedAmount: reimbursementIndex.allocatedToExpense(txn.id)
+                                )
                             }
                             .contentShape(Rectangle())
                         }
@@ -86,7 +106,11 @@ struct CategoryDetailView: View {
                         .accessibilityLabel("\(selectedTransactionIDs.contains(txn.id) ? "Deselect" : "Select") \(txn.title)")
                     } else {
                         Button { detail = txn } label: {
-                            TransactionRow(txn: txn, category: category)
+                            TransactionRow(
+                                txn: txn,
+                                category: category,
+                                reimbursedAmount: reimbursementIndex.allocatedToExpense(txn.id)
+                            )
                         }
                         .buttonStyle(PressableStyle(scale: 0.98))
                     }
