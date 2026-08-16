@@ -21,6 +21,17 @@ final class AIInsightService {
 
     var state: State = .idle
 
+    static var isAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .available = SystemLanguageModel.default.availability {
+                return true
+            }
+        }
+        #endif
+        return false
+    }
+
     func ask(question: String, transactionContext: String) async {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {

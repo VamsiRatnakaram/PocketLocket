@@ -100,10 +100,12 @@ struct AnalysisView: View {
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 24) {
-                            AskPocketLocketCard(
-                                entries: questionEntries ?? [],
-                                monthlyBudget: monthlyBudget
-                            )
+                            if AIInsightService.isAvailable {
+                                AskPocketLocketCard(
+                                    entries: questionEntries ?? [],
+                                    monthlyBudget: monthlyBudget
+                                )
+                            }
                             SavingsQuickWins(
                                 suggestions: savingsCoordinator.suggestions ?? [],
                                 action: showSavingsPlan
