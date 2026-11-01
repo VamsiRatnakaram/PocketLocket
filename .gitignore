@@ -10,6 +10,11 @@ ios/Config/Secrets.xcconfig
 
 # Local release checklist; contains account-specific App Store notes.
 docs/LOCAL_TESTFLIGHT_RELEASE.md
+docs/APP_STORE_RELEASE_KIT.md
+
+# Generated App Store screenshots
+screenshots/
+build/
 
 # Xcode / SwiftPM build artifacts
 **/DerivedData/
