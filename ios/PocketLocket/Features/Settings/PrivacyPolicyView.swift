@@ -15,6 +15,7 @@ struct PrivacyPolicyView: View {
             Section("Information stored on your device") {
                 Text("PocketLocket stores account names, balances, transactions, categories, rules, preferences, and optional budgets in its local SwiftData store on your device.")
                 Text("If you connect SimpleFIN, the app stores its read-only access URL in the device Keychain, protected by Face ID, Touch ID, or your passcode when available.")
+                Text("If you add PocketLocket's Home Screen or Lock Screen widget, the app writes a summary of your current month into a private app-group container that only PocketLocket and its widget can read. The widget makes no network requests, and amounts stay hidden unless you turn them on in Settings.")
             }
 
             Section("Optional SimpleFIN connection") {

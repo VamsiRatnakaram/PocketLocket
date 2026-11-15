@@ -26,7 +26,8 @@
 #     If you enrolled a passcode, unlock the simulator before running.
 #   - The app supports `-tab <home|transactions|accounts|insights>` launch
 #     arguments; this script uses them for deterministic navigation.
-#   - Settings screenshots: Settings lives behind the Accounts tab's gear.
+#   - Settings screenshots: Settings opens from the gear button in the HOME
+#     tab's navigation bar (HomeView toolbar -> showSettings), not from Accounts.
 #     Capture that one manually if you want it in the set.
 set -euo pipefail
 
