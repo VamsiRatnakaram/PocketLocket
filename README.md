@@ -229,21 +229,27 @@ xcodebuild -project PocketLocket.xcodeproj -scheme PocketLocket \
   -destination 'platform=iOS Simulator,name=iPhone 17,OS=27.2' test
 ```
 
-To make an **archive** (the `.xcarchive` you upload to App Store Connect):
-
-```bash
-cd ios
-xcodebuild -project PocketLocket.xcodeproj -scheme PocketLocket \
-  -destination 'generic/platform=iOS' -configuration Release \
-  -archivePath build/PocketLocket.xcarchive archive
-```
-
-Or in Xcode: select **Any iOS Device (arm64)** → *Product → Archive*, then
+To make an **archive** (the `.xcarchive` you upload to App Store Connect), use
+Xcode: select **Any iOS Device (arm64)** → *Product → Archive*, then
 *Organizer → Distribute App → App Store Connect → Upload*. Don't archive against
 a simulator or *My Mac (Designed for iPhone)*, and increment `CURRENT_PROJECT_VERSION`
 in `project.yml` for each upload. Uploads must come from a **release** Xcode that
 App Store Connect currently accepts — a beta-built archive is rejected and can't
 be repaired afterwards.
+
+> Prefer the Xcode route for uploads. `xcodebuild ... archive` (below) produces a
+> **development**-signed archive — `Apple Development` with `get-task-allow=true`
+> — which is fine for installing on your own devices but is not the distribution
+> signature App Store Connect expects. Xcode's *Distribute App* flow re-signs for
+> distribution. Check what you're holding with
+> `codesign -dvvv <App>.app 2>&1 | grep Authority`.
+>
+> ```bash
+> cd ios
+> xcodebuild -project PocketLocket.xcodeproj -scheme PocketLocket \
+>   -destination 'generic/platform=iOS' -configuration Release \
+>   -archivePath build/PocketLocket.xcarchive archive
+> ```
 
 ---
 
