@@ -32,9 +32,13 @@ flowchart LR
         Cache[("SwiftData store")]
         KC[["Keychain\n(Face ID-bound token)"]]
         AI["Apple Intelligence\n(on-device)"]
+        AG[("App Group\nsnapshot")]
+        W["Widget extension\n(own process)"]
         UI --- Cache
         UI --- KC
         UI --- AI
+        UI -- "publishes a snapshot" --> AG
+        AG -- "read-only render" --> W
     end
 
     Bridge["SimpleFIN Bridge\n(read-only, HTTPS)"]
@@ -46,7 +50,9 @@ flowchart LR
 
 **Key rule:** the phone holds only (a) a read-only SimpleFIN access URL in the
 Keychain and (b) a local store of already-fetched financial rows. There is no
-server, no login account, and no shared secret.
+server, no login account, and no shared secret. The widget process can reach
+neither the store nor the Keychain — only the small snapshot the app chose to
+publish.
 
 ---
 
@@ -63,6 +69,7 @@ ios/
       Networking/             SimpleFINClient (direct, read-only bridge access)
       Persistence/            AppModelContainer, SyncService
       Import/                 OFXParser, CSVParser, ImportService
+      Widgets/                WidgetSnapshotPublisher (app → App Group)
     Models/                   SpendCategory, CategoryResolver, MerchantHeuristics,
                               SpendAggregator, SavingsAdvisor, AccountRecord,
                               TransactionRecord, CategoryRule,
@@ -71,6 +78,9 @@ ios/
     DesignSystem/             Formatters
     Resources/                Info.plist, Assets
   PocketLocketTests/          Unit + snapshot tests
+  Shared/                     App Group snapshot layer (compiled into BOTH targets)
+  PocketLocketWidget/         WidgetKit extension: provider, intent, views
+  PocketLocketWidgetTests/    Widget layout + readout tests (no host app)
 
 scripts/bootstrap.sh          Installs tooling + generates the Xcode project
 ```
@@ -141,6 +151,56 @@ flowchart TD
 `SpendAggregator` and `HomeViewModel` operate on plain `SpendItem` values (not
 SwiftData models). This keeps the budgeting math **pure and unit-testable**
 without a database and lets the SwiftUI views stay declarative.
+
+### The widget extension and `Shared/`
+
+The widget is a separate target (`PocketLocketWidget`) running in its own
+process. It cannot open the SwiftData store and cannot read the Face ID–bound
+SimpleFIN token, so nothing is ever pulled — the app **pushes** a small
+precomputed payload into an App Group container.
+
+`ios/Shared/` is compiled into *both* binaries, which is what keeps the two
+sides from disagreeing about the same number:
+
+| File | Role |
+|------|------|
+| `AppGroup.swift` | Resolves the App Group id from Info.plist; owns the shared `UserDefaults` suite. |
+| `WidgetSnapshot.swift` | The `Codable` payload plus the pure `build(...)` that derives it from `[SpendItem]`. |
+| `WidgetSnapshotStore.swift` | Publish / clear / `reloadAllTimelines()`, with dedupe on visible content. |
+| `MonthlyPace.swift` | `daysLeftInMonth` and `SafeToSpendBasis` — extracted from `HomeView` so Home and the widget share one implementation. |
+| `WidgetMetric.swift` | The headline metric (`percent` / `remaining` / `safeToSpend`), shared preference. |
+| `WidgetReadout.swift`, `WidgetText.swift` | Wording and number formatting, identical on every size. |
+| `WidgetDeepLink.swift` | `pocketlocket://widget/...` build + parse. |
+| `WidgetPreferences.swift` | "Show amounts" and "Color ring by category" toggles, read by both sides. The color key is stored **inverted** (`widgetMonochromeRing`) because `UserDefaults.bool` reads `false` for an unwritten key — a plain "colorful" key would default the feature *off* for fresh installs and for existing installs updating past this version. |
+| `WidgetRingSegment.swift` | Pure ring-segment math: splits the budget arc into per-category segments (`make(fraction:categories:limit:)`). Segments are exactly contiguous — no gap is reserved, because the view draws them last-to-first with round caps so each category's rounded end overlaps the next. Keeping a gap out of the model is what guarantees a thin category can never be dropped for being narrower than its own gap. Lives here rather than in the widget target so the arithmetic is unit-testable and the app could reuse it. |
+
+```mermaid
+sequenceDiagram
+    participant Home as HomeView
+    participant Pub as WidgetSnapshotPublisher
+    participant Store as WidgetSnapshotStore
+    participant AG as App Group defaults
+    participant Prov as BudgetTimelineProvider
+    participant W as Widget
+    Home->>Pub: data changed / app backgrounded
+    Pub->>Store: publish(snapshot)
+    Store->>Store: sameVisibleContent? → skip
+    Store->>AG: write JSON
+    Store->>Prov: reloadAllTimelines()
+    Prov->>AG: WidgetSnapshot.load()
+    Prov->>W: 2 entries: now, + the stale flip
+```
+
+Two decisions worth knowing:
+
+- **The timeline has two entries, not a refresh schedule.** WidgetKit throttles
+  self-refreshing timelines, so freshness comes from the app calling
+  `reloadAllTimelines()`. The second entry is only the moment the snapshot
+  crosses the staleness threshold, which is when the caption changes to
+  *"as of 3h ago"*.
+- **Amounts are absent, not hidden.** When *Show amounts* is off,
+  `WidgetCategory.amount` is `nil` and the encoder omits the key, so no dollar
+  figure exists in the shared file at all.
 
 ---
 
@@ -232,7 +292,14 @@ Threats considered: a stolen device and a decompiled binary.
   backend `.env`. `Secrets.xcconfig` is git-ignored and now only optionally holds
   a signing team override.
 - **User-controlled erase.** *Settings → Reset local data* deletes all records
-  and clears the stored token.
+  and clears the stored token **and the widget snapshot**, so a widget can't keep
+  showing figures from a ledger that's gone.
+- **The widget sees only what you put on your Home Screen.** It runs in its own
+  process with no access to the SwiftData store or the biometric-bound token; it
+  reads one small precomputed JSON blob from an App Group container. Dollar
+  amounts are omitted from that blob entirely unless *Settings → Widgets → Show
+  amounts* is on. Widget taps route through `AppRouter`, which **queues** the
+  destination rather than navigating, so a tap can never bypass the lock.
 
 ---
 
@@ -326,10 +393,21 @@ by a signature of the inputs so it only regenerates when spending changes.
   income/transfers/refunds, sort order, budget math); `SavingsAdvisorTests`;
   `ImportParsersTests` (OFX/CSV); `SimpleFINTests` (amount negation, type
   inference, id namespacing).
+- **Widget tests in the app bundle** (`WidgetSnapshotTests`,
+  `WidgetPresentationTests`): snapshot encoding/decoding, the privacy rule that
+  hidden amounts are *absent* from the bytes, publish dedupe, staleness, deep
+  links, the metric cycle, and `SafeToSpendBasis` / `MonthlyPace` (so a change
+  to Home's math can't silently diverge from the widget's).
+- **Widget bundle tests** (`PocketLocketWidgetTests`): renders every family with
+  `ImageRenderer` to `/tmp/widget_layouts` and asserts on the readout wording.
+  It has no host app — an app extension's sources aren't in the app binary, so
+  the target recompiles `Shared/` and the two model files itself. `\.widgetFamily`
+  is read-only, which is why `BudgetWidgetEntryView` accepts the family as a
+  parameter.
 - **Snapshot tests** (`UISnapshotTests`): render each ring variant and the Home
   composition via `ImageRenderer` to catch layout regressions.
 
-Run: `xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket -destination 'platform=iOS Simulator,name=iPhone 17' test` (27 tests).
+Run: `xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket -destination 'platform=iOS Simulator,name=iPhone 17,OS=27.2' test` (353 tests across both bundles). Green on the iOS 27.2 simulator runtime; pass `OS=` to pick one, and note that `name=iPhone 17` only exists on 27.0 and later. The `PocketLocket` scheme is declared in `project.yml` so it picks up the widget test target too — an auto-generated scheme only includes test targets that depend on the app, and this one deliberately doesn't. Declaring schemes suppresses auto-generation, so `PocketLocketWidget` is declared too: building only the appex gives Xcode's "wait for the process to launch" mode, the only way to breakpoint inside the extension.
 
 ---
 
@@ -339,6 +417,13 @@ Run: `xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket -desti
 - `ios/Config/Secrets.xcconfig` (git-ignored, optional) can override
   `DEVELOPMENT_TEAM`; otherwise signing uses the automatic team set in
   `project.yml` with bundle id `com.vratnakaram.PocketLocket`.
+- **App Group** `group.<BUNDLE_ID_PREFIX>.PocketLocket` (set from
+  `APP_GROUP_ID` in `Config/*.xcconfig`) is shared by the app and the widget
+  extension, whose bundle id is the app's plus `.PocketLocketWidget`. The id is
+  read at runtime from the `AppGroupIdentifier` Info.plist key, so changing the
+  prefix in one xcconfig updates both. On a **physical device** the App Group
+  entitlement requires the paid Apple Developer Program; the simulator doesn't
+  check it.
 - The Xcode project is generated by XcodeGen (`scripts/bootstrap.sh` or
   `cd ios && xcodegen generate`); the `.xcodeproj` is not committed.
 
@@ -370,3 +455,22 @@ their own SimpleFIN bridge or imports their own files).
   an idempotent upsert from SimpleFIN, and import merges into the same store.
 - **Pure, testable domain layer** — categorization and aggregation are plain
   value types, independent of SwiftData and UI.
+- **The widget reads a snapshot, never the store** — a widget extension is a
+  separate process with no access to the SwiftData file or the biometric-bound
+  token, so the app publishes a small precomputed payload into an App Group and
+  the widget only renders it. Costs a little duplication of "what's fresh";
+  buys a widget that can't leak the ledger and can't fail on a locked Keychain.
+- **One shared metric preference instead of per-widget configuration** — the
+  cycle button, the long-press menu and Settings all write one key, so every
+  widget on the Home Screen agrees. A `@Parameter` would have added a fourth,
+  contradictory place to set it.
+- **The colored ring is still a budget ring** — segments divide the *filled*
+  arc, so length keeps answering "how much of my budget is gone" and color
+  answers "on what". A full-circle category donut (the obvious choice, and what
+  most budgeting widgets do) would have thrown away the widget's primary read:
+  you could no longer see at a glance whether you're near your limit. Two rules
+  keep the legend honest — the ring never names more categories than the layout
+  lists rows (`WidgetRingSegments.displayedCategories` is 3, matching the medium
+  widget; large passes `categories.count`), and the unattributed remainder is
+  drawn in a pale neutral rather than a category tint, because every saturated
+  color already means a specific category.

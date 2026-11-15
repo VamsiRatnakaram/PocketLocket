@@ -9,6 +9,14 @@ struct SettingsView: View {
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 3000
     @AppStorage("ringStyle") private var ringStyleRaw: String = RingStyle.donut.rawValue
     @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.system.rawValue
+    @AppStorage(WidgetPreferences.showsAmountsKey, store: AppGroup.defaults)
+    private var widgetShowsAmounts: Bool = false
+    @AppStorage(WidgetMetric.defaultsKey, store: AppGroup.defaults)
+    private var widgetMetricRaw: String = WidgetMetric.percent.rawValue
+    /// Stored inverted — see `WidgetPreferences.monochromeRingKey` for why.
+    @AppStorage(WidgetPreferences.monochromeRingKey, store: AppGroup.defaults)
+    private var widgetMonochromeRing: Bool = false
+    @State private var widgetLastPublishedAt: Date?
     @State private var simplefinConnected = false
     @State private var earliestSyncedDate: Date?
     @State private var showSimpleFIN = false
@@ -16,6 +24,16 @@ struct SettingsView: View {
     @State private var showDisconnectConfirmation = false
     @State private var disconnectErrorMessage: String?
     @State private var showResetConfirmation = false
+
+    /// The toggle reads and writes the *inverted* stored key, so the UI can say
+    /// "Color ring by category" while the default for an untouched key is the
+    /// colorful ring.
+    private var widgetColorfulRingBinding: Binding<Bool> {
+        Binding(
+            get: { !widgetMonochromeRing },
+            set: { widgetMonochromeRing = !$0 }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -52,6 +70,26 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+
+                Section {
+                    Picker("Figure to show", selection: $widgetMetricRaw) {
+                        ForEach(WidgetMetric.allCases) { metric in
+                            Text(metric.pickerLabel).tag(metric.rawValue)
+                        }
+                    }
+                    Toggle("Show amounts", isOn: $widgetShowsAmounts)
+                    Toggle("Color ring by category", isOn: widgetColorfulRingBinding)
+                } header: {
+                    Text("Widgets")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Add PocketLocket from the widget gallery on your Home Screen or Lock Screen. Amounts are off by default — a percentage answers the same question without putting a balance on your Lock Screen.")
+                        Text("The Home Screen ring fills to your budget either way; coloring splits that arc into the top categories so the color matches each row. Lock Screen widgets stay monochrome, as the system expects.")
+                        if let lastPublishedText {
+                            Text("Widgets last updated \(lastPublishedText).")
+                        }
+                    }
                 }
 
                 Section {
@@ -132,6 +170,12 @@ struct SettingsView: View {
             .sheet(isPresented: $showBackup) { BackupView() }
             .onAppear { simplefinConnected = SimpleFINStore.isConnected }
             .task { earliestSyncedDate = loadEarliestSyncedDate() }
+            .task { widgetLastPublishedAt = WidgetSnapshot.load()?.updatedAt }
+            // These settings live where the widget can read them, but it won't
+            // re-render on its own — the app has to ask.
+            .onChange(of: widgetShowsAmounts) { _, _ in reloadWidgets() }
+            .onChange(of: widgetMetricRaw) { _, _ in reloadWidgets() }
+            .onChange(of: widgetMonochromeRing) { _, _ in reloadWidgets() }
             .confirmationDialog(
                 "Disconnect SimpleFIN?",
                 isPresented: $showDisconnectConfirmation,
@@ -204,8 +248,21 @@ struct SettingsView: View {
         return "Oldest synced transaction: \(formatter.string(from: earliest)) (~\(months) month\(months == 1 ? "" : "s") of history). PocketLocket requests up to 24 months, but each bank's SimpleFIN feed decides how far back it actually shares."
     }
 
-    private var supportURL: URL? {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    /// When the widgets were last given fresh numbers, so "my widget still says
+    /// yesterday" has an answer in the app rather than being a mystery.
+    private var lastPublishedText: String? {
+        guard let widgetLastPublishedAt else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: widgetLastPublishedAt, relativeTo: Date())
+    }
+
+    private func reloadWidgets() {
+        WidgetSnapshotStore.reloadWidgets()
+        widgetLastPublishedAt = WidgetSnapshot.load()?.updatedAt
+    }
+
+    private var supportURL: URL? {        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
         return SupportEmail.url(
             version: version,
@@ -225,6 +282,10 @@ struct SettingsView: View {
         try? context.delete(model: CategoryRule.self)
         try? context.delete(model: MerchantGroupingRule.self)
         try? context.save()
+        // The widgets read a copy of the ledger, not the ledger itself, so they
+        // have to be told to forget it too — otherwise they keep advertising
+        // figures the user was just promised were gone.
+        WidgetSnapshotStore.clear()
         if disconnectSimpleFIN {
             SimpleFINStore.clear()
             simplefinConnected = false

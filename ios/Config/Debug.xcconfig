@@ -13,6 +13,11 @@
 DEVELOPMENT_TEAM = ABCDE12345
 BUNDLE_ID_PREFIX = com.vratnakaram
 
+// Suite shared by the app and the widget extension. Both targets list it in
+// their entitlements, and it reaches the code through Info.plist's
+// AppGroupIdentifier so the two can never drift apart.
+APP_GROUP_ID = group.$(BUNDLE_ID_PREFIX).PocketLocket
+
 #include? "Secrets.xcconfig"
 
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG

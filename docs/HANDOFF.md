@@ -3,7 +3,11 @@
 A practical guide to pick this project back up on another Mac. It's a private,
 **on-device, backend-free** iOS budgeting app (SwiftUI + SwiftData + Swift Charts).
 
-Last verified: Xcode 26.6, macOS 26.x, iOS 26 simulator. 54 Swift files, **40 tests passing**.
+Last verified: Xcode **27.2 (27B52)** with the **iOS 27.2 SDK**, macOS 26.x, on
+the **iOS 27.2** simulator. **353 tests across two
+bundles** (313 in `PocketLocketTests`, 40 in `PocketLocketWidgetTests`). Trust
+`grep -c "func test" ios/PocketLocketTests/*.swift ios/PocketLocketWidgetTests/*.swift`
+over any historical number written here.
 
 ---
 
@@ -25,7 +29,8 @@ There is **no git repo yet**. Two options:
 
 ## 2. Prerequisites
 
-- macOS with **Xcode 26.x** (built/tested on 26.6). Set it active:
+- macOS with **Xcode 27.x** (built/tested on 27.2; the app's iOS 17 deployment
+  target means it also still builds on Xcode 26.x). Set it active:
   `sudo xcode-select -s /Applications/Xcode.app`
 - **No accounts required.** The app is fully local — no Plaid, no Supabase, no
   server. (Optional at runtime: a SimpleFIN Bridge subscription ~$15/yr for
@@ -49,10 +54,31 @@ export PATH="$PWD/tools/xcodegen/bin:$PATH"     # prebuilt XcodeGen, no install
 xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket \
   -destination 'platform=iOS Simulator,name=iPhone 17' build
 
-# Run all tests (40)
+# Run all tests (333: 313 in PocketLocketTests + 20 in PocketLocketWidgetTests)
 xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket \
   -destination 'platform=iOS Simulator,name=iPhone 17' test
+
+# Same suite on the iOS 27 runtime (also green). Pass OS= to pick the runtime.
+xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=27.2' test
+
+# Archive for TestFlight (device destination, Release). See LOCAL_TESTFLIGHT_RELEASE.md
+xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket \
+  -destination 'generic/platform=iOS' -configuration Release \
+  -archivePath ios/build/PocketLocket.xcarchive archive
 ```
+
+**iOS 27:** the deployment target is `IPHONEOS_DEPLOYMENT_TARGET: 17.0`, so the app
+runs unchanged on iOS 17 → 27 and there is nothing to "bump" to support it. This
+Mac now has **Xcode 27.2 (27B52) / iPhoneOS 27.2 SDK**, which is what builds and
+signs the app; the suite passes on the iOS 27.2 simulator. That already satisfies
+the **April 2027** rule that uploads be built with the iOS 27 SDK or later.
+App Store Connect only accepts archives from a release Xcode it currently
+supports, and an archive permanently keeps the SDK that built it — so before
+archiving, confirm 27.2 is a *release* build and not a beta (see
+[LOCAL_TESTFLIGHT_RELEASE.md](LOCAL_TESTFLIGHT_RELEASE.md) for the beta-archive
+trap). If you need an older Xcode too, keep them side by side and switch with
+`sudo xcode-select -s /Applications/Xcode.app`.
 
 `scripts/bootstrap.sh` also installs tooling (Homebrew/XcodeGen) and generates the
 project, but the prebuilt `tools/xcodegen` means you usually don't need it.
@@ -170,6 +196,29 @@ docs/                         ARCHITECTURE.md, HANDOFF.md
 - **Persistence keys** (`@AppStorage`/UserDefaults): `monthlyBudget`, `ringStyle`,
   `excludedAccountIds`, `categoryBudgets`, `safeToSpendFocus`, `ai_insight_text`,
   `ai_insight_signature`.
+- **Widget keys live in the App Group suite**, not standard UserDefaults — the
+  widget process can't read the app's. `AppGroup.defaults` is the only way across:
+  `widgetSnapshot` (JSON), `widgetMetric`, `widgetShowAmounts`. Anything the
+  widget needs must be written there by the app.
+- **`Shared/` is compiled into three targets** (app, widget, widget tests). Adding
+  a file there is free, but it must not import anything the extension can't
+  (no SwiftData queries, no `KeychainStore`), and `PocketLocketWidgetBundle.swift`
+  is excluded from the test target so there's only one `@main`.
+- **`WidgetSnapshotStore.publish` returns `false` when nothing visible changed.**
+  That's the reload-budget guard — don't "fix" it by always reloading.
+- **The `PocketLocket` scheme is hand-declared in `project.yml`** so `test` runs
+  the widget bundle too. An auto-generated scheme only includes test targets that
+  depend on the app, and `PocketLocketWidgetTests` deliberately has no host app.
+  Declaring schemes by hand suppresses the auto-generated ones, so
+  **`PocketLocketWidget` is declared alongside it** — without that entry there is
+  no way to run/debug the extension process.
+- **The simulator wedges on this Mac.** Disk pressure + swap thrash deadlocks
+  `com.apple.CoreSimulator.CoreSimulatorService`, after which every `xcrun simctl`
+  and `xcodebuild` call hangs forever with no output (it looks like a slow build,
+  but it is hung). Fix: kill `Simulator.app`, the `CoreSimulatorService` XPC
+  process and any `SimLaunchHost.arm64`, then boot again. Prune stale simulators
+  with `xcrun simctl delete <udid>` — an empty device is ~18 MB, one that has run
+  an app is 2-3 GB.
 - **Swift 5 language mode** (`SWIFT_VERSION=5.0`) to avoid strict-concurrency churn.
 - SwiftData model additions are lightweight-migratable (give new fields defaults).
 
@@ -177,7 +226,11 @@ docs/                         ARCHITECTURE.md, HANDOFF.md
 
 ## 10. Backlog / ideas not yet built
 
-Home & Lock Screen **widgets** (WidgetKit), **local notifications** (weekly
-summary / over-budget / large purchase), **background refresh** (BGTaskScheduler)
-with a "last synced" timestamp, a parallel **Groceries** savings insight, and a
-plain CSV/PDF export for taxes.
+**Local notifications** (weekly summary / over-budget / large purchase),
+**background refresh** (BGTaskScheduler) with a "last synced" timestamp, a
+parallel **Groceries** savings insight, and a plain CSV/PDF export for taxes.
+
+Home & Lock Screen **widgets are built** (small / medium / large + circular /
+rectangular, tap-to-cycle metric, per-category deep links). Not yet done: the
+`.accessoryInline` family, an "add transaction" widget action (it dead-ends on
+the lock screen today), and a configurable-per-widget metric.

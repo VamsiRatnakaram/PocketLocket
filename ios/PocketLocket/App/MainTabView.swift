@@ -4,12 +4,17 @@ import SwiftData
 struct MainTabView: View {
     @State private var selection: Tab = MainTabView.initialTab()
     @Environment(\.modelContext) private var context
+    @Environment(AppRouter.self) private var router
 
     enum Tab: Hashable { case home, transactions, accounts, analysis }
 
     var body: some View {
         tabs
             .liquidGlassTabBarMinimizeOnScroll()
+            // This view only exists once Face ID has passed, which is exactly
+            // when a queued widget tap is safe to act on.
+            .onAppear { applyPendingRoute() }
+            .onChange(of: router.pendingTab) { _, _ in applyPendingRoute() }
             .task {
                 // Backfill first so existing history (and CSV imports, which
                 // never touch the sync path) gets paired even when there's no
@@ -26,6 +31,15 @@ struct MainTabView: View {
                 }
                 try? await SyncService.shared.refresh(context: context)
             }
+    }
+
+    /// Applies a route a widget asked for, if one is waiting.
+    private func applyPendingRoute() {
+        guard let destination = router.takeTab() else { return }
+        switch destination {
+        case .home: selection = .home
+        case .transactions: selection = .transactions
+        }
     }
 
     @ViewBuilder

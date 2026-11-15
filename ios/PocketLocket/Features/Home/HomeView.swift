@@ -14,6 +14,9 @@ struct HomeView: View {
     @AppStorage(SpendingAccountFilter.key) private var excludedAccountsRaw = ""
     @AppStorage(SafeToSpendFocus.key) private var safeToSpendFocusRaw = ""
     @AppStorage(CategoryBudgetStore.key) private var categoryBudgetsRaw = ""
+    // In the App Group suite, not the app's defaults: the widget reads it too.
+    @AppStorage(WidgetPreferences.showsAmountsKey, store: AppGroup.defaults)
+    private var widgetShowsAmounts: Bool = false
 
     @State private var isSyncing = false
     @State private var showSimpleFIN = false
@@ -25,6 +28,7 @@ struct HomeView: View {
     @State private var monthOffset = 0
     @State private var scope: Scope = .month
     @State private var selectedCategory: SpendCategory?
+    @Environment(AppRouter.self) private var router
     @State private var showExcluded = false
     @State private var summaryCache = DerivedCache<MonthKey, MonthSummary>()
 
@@ -154,7 +158,38 @@ struct HomeView: View {
                 }
             }
             .sensoryFeedback(.impact, trigger: refreshTick)
+            .widgetSnapshot(widgetPublisher)
+            // A widget tap on a category row opens that drill-down, once the app
+            // is unlocked and Home exists.
+            .onAppear { applyPendingCategory() }
+            .onChange(of: router.pendingCategory) { _, _ in applyPendingCategory() }
         }
+    }
+
+    /// Opens the category a widget tapped, if one is waiting. Only meaningful on
+    /// the current month, which is what the widgets always show.
+    private func applyPendingCategory() {
+        guard let category = router.takeCategory() else { return }
+        monthOffset = 0
+        scope = .month
+        selectedCategory = category
+    }
+
+    /// What the widgets should show, derived from the same inputs Home uses.
+    ///
+    /// Keyed on the ledger and the budget settings only — not on `monthOffset` —
+    /// so browsing an old month leaves the widgets showing the current one.
+    private var widgetPublisher: WidgetSnapshotPublisher {
+        WidgetSnapshotPublisher(
+            transactions: transactions,
+            rules: rules,
+            reimbursements: reimbursementAllocations,
+            monthlyBudget: monthlyBudget,
+            excludedAccountsRaw: excludedAccountsRaw,
+            categoryBudgetsRaw: categoryBudgetsRaw,
+            safeToSpendFocusRaw: safeToSpendFocusRaw,
+            showsAmounts: widgetShowsAmounts
+        )
     }
 
     private func monthContent(_ summary: MonthSummary) -> some View {
@@ -203,38 +238,30 @@ struct HomeView: View {
     }
 
     private var daysLeftInMonth: Int {
-        let calendar = Calendar.current
-        let now = Date()
-        guard let range = calendar.range(of: .day, in: .month, for: now) else { return 1 }
-        return max(1, range.count - calendar.component(.day, from: now) + 1)
+        MonthlyPace.daysLeftInMonth(for: Date())
     }
 
     /// Budget basis, spent, and a label for Safe-to-spend: category-focused when
     /// categories are starred and budgeted, otherwise the overall monthly budget.
-    private func safeToSpendBasis(_ summary: MonthSummary) -> (budget: Double, spent: Double, label: String)? {
-        let budgets = CategoryBudgetStore.decode(categoryBudgetsRaw)
-        let focus = SafeToSpendFocus.categories(from: safeToSpendFocusRaw).filter { budgets[$0] != nil }
-        if !focus.isEmpty {
-            let budget = focus.reduce(0) { $0 + (budgets[$1] ?? 0) }
-            // Reuses the categories resolved for the summary rather than
-            // resolving the whole month again.
-            let spent = summary.items
-                .filter { $0.amount > 0 && focus.contains($0.category) }
-                .reduce(0) { $0 + $1.amount }
-            let names = focus.map(\.displayName).sorted().joined(separator: ", ")
-            return (budget, spent, names)
-        } else if monthlyBudget > 0 {
-            return (monthlyBudget, summary.viewModel.totalSpent, "")
-        }
-        return nil
+    ///
+    /// The math lives in `SafeToSpendBasis` because the widgets need the identical
+    /// figure; a second copy here would have been free to drift from the number
+    /// sitting on the Home Screen.
+    private func safeToSpendBasis(_ summary: MonthSummary) -> SafeToSpendBasis? {
+        SafeToSpendBasis.resolve(
+            items: summary.items,
+            monthlyBudget: monthlyBudget,
+            categoryBudgets: CategoryBudgetStore.decode(categoryBudgetsRaw),
+            focus: SafeToSpendFocus.categories(from: safeToSpendFocusRaw)
+        )
     }
 
-    private func safeToSpend(_ basis: (budget: Double, spent: Double, label: String)?) -> Double {
+    private func safeToSpend(_ basis: SafeToSpendBasis?) -> Double {
         guard let basis else { return 0 }
-        return max(0, basis.budget - basis.spent) / Double(daysLeftInMonth)
+        return basis.dailyAllowance(daysLeft: daysLeftInMonth)
     }
 
-    private func safeToSpendLabel(_ basis: (budget: Double, spent: Double, label: String)?) -> String {
+    private func safeToSpendLabel(_ basis: SafeToSpendBasis?) -> String {
         let amount = CurrencyFormatter.string(safeToSpend(basis))
         if let basis, !basis.label.isEmpty {
             return "\(basis.label): \(amount)/day"
