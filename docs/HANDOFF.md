@@ -60,7 +60,7 @@ xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket \
 xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket \
   -destination 'platform=iOS Simulator,name=iPhone 17,OS=27.2' test
 
-# Archive for TestFlight (device destination, Release). See LOCAL_TESTFLIGHT_RELEASE.md
+# Archive for TestFlight (device destination, Release). See release/LOCAL_TESTFLIGHT_RELEASE.md
 xcodebuild -project ios/PocketLocket.xcodeproj -scheme PocketLocket \
   -destination 'generic/platform=iOS' -configuration Release \
   -archivePath ios/build/PocketLocket.xcarchive archive
@@ -74,7 +74,7 @@ the **April 2027** rule that uploads be built with the iOS 27 SDK or later.
 App Store Connect only accepts archives from a release Xcode it currently
 supports, and an archive permanently keeps the SDK that built it — so before
 archiving, confirm 27.2 is a *release* build and not a beta (see
-[LOCAL_TESTFLIGHT_RELEASE.md](LOCAL_TESTFLIGHT_RELEASE.md) for the beta-archive
+[release/LOCAL_TESTFLIGHT_RELEASE.md](release/LOCAL_TESTFLIGHT_RELEASE.md) for the beta-archive
 trap). If you need an older Xcode too, keep them side by side and switch with
 `sudo xcode-select -s /Applications/Xcode.app`.
 
@@ -143,10 +143,11 @@ ios/
     Features/                 Home, Transactions, Accounts, Connect, Save, Settings
     DesignSystem/             Formatters, ButtonStyles
     Resources/                Info.plist, Assets
-  PocketLocketTests/          10 test files (40 tests)
+  PocketLocketTests/          33 test files (313 tests)
+  PocketLocketWidgetTests/    2 test files (40 tests)
 scripts/bootstrap.sh          Tooling install + project generation
 tools/xcodegen/               Prebuilt XcodeGen (no sudo needed)
-docs/                         ARCHITECTURE.md, HANDOFF.md
+docs/                         README.md (index), ARCHITECTURE.md, HANDOFF.md, release/ (git-ignored), assets/
 ```
 
 ---

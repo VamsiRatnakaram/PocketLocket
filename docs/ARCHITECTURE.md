@@ -159,6 +159,11 @@ process. It cannot open the SwiftData store and cannot read the Face ID–bound
 SimpleFIN token, so nothing is ever pulled — the app **pushes** a small
 precomputed payload into an App Group container.
 
+> This section covers the widget's *design*. For the practical guide — what the
+> widgets show, and how to add, test, and debug them (`simctl`, the App Group
+> container check, the `PocketLocketWidget` debug scheme) — see
+> [`ios/PocketLocketWidget/README.md`](../ios/PocketLocketWidget/README.md).
+
 `ios/Shared/` is compiled into *both* binaries, which is what keeps the two
 sides from disagreeing about the same number:
 

@@ -9,16 +9,22 @@
 # Output: screenshots/<device>/NN-name.png — upload these to the App Store
 # Connect "6.9 inch display" section.
 #
-# One-time data seeding (manual, ~1 min, only the first time):
-#   The script boots the simulator and builds/installs the app. For populated
-#   screens, connect the SimpleFIN *demo* bridge once through the app UI:
-#   Connect tab (or Home > Connect) > paste your demo claim URL > Connect.
-#   The access URL is stored in the simulator Keychain, so every later run of
-#   this script reuses it automatically.
+# One-time data seeding (automatic, if scripts/demo-token.txt exists):
+#   Screenshots of an empty app are useless, so the script seeds the SimpleFIN
+#   *demo* connection automatically. It passes the access URL to the app via
+#   `-seedSimpleFIN <url>` (Debug-only hook, see ios/PocketLocket/App/
+#   DebugLaunch.swift), which stores it in the simulator Keychain; every later
+#   launch syncs from it.
 #
-#   The demo claim URL is NOT stored in this file (this script is public).
-#   Keep it in scripts/demo-token.txt (git-ignored) or pass it via
-#   DEMO_TOKEN_URL when you do the one-time manual connect.
+#   Put the access URL (NOT the setup token) in scripts/demo-token.txt:
+#     https://demo:demo@beta-bridge.simplefin.org/simplefin
+#   That file is git-ignored. Or override with DEMO_ACCESS_URL=<url>.
+#
+#   Why the access URL and not the claim/setup token: the public demo setup
+#   token is single-use — claiming it returns the access URL above, and a
+#   second claim 403s ("already claimed"). Store the durable access URL.
+#   If you ever need to re-claim, get a fresh token at
+#   https://www.simplefin.org/bridge.html and paste it in the app UI once.
 #
 # Notes:
 #   - The biometric gate auto-passes on a simulator with no passcode enrolled
@@ -64,7 +70,27 @@ fi
 echo "==> Booting $UDID"
 xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b
-open -a Simulator
+# Simulator.app moved out of Xcode's Developer/Applications in recent releases;
+# don't let a missing GUI launcher kill the capture run.
+open -a Simulator 2>/dev/null || true
+
+# Resolve the demo access URL for seeding (git-ignored file or env override).
+SEED_ARGS=()
+DEMO_ACCESS_URL="${DEMO_ACCESS_URL:-}"
+if [[ -z "$DEMO_ACCESS_URL" && -f "$REPO_ROOT/scripts/demo-token.txt" ]]; then
+  DEMO_ACCESS_URL="$(grep -vE '^\s*(#|$)' "$REPO_ROOT/scripts/demo-token.txt" | head -1 | tr -d '[:space:]')"
+fi
+if [[ -n "$DEMO_ACCESS_URL" ]]; then
+  SEED_ARGS=(-seedSimpleFIN "$DEMO_ACCESS_URL")
+  echo "==> Seeding SimpleFIN demo data"
+else
+  echo "==> No demo access URL (scripts/demo-token.txt or DEMO_ACCESS_URL);" \
+       "screenshots will show an empty app."
+fi
+
+# Show an on-track budget in the ring (demo spends ~$5.2k; default $3k shows a
+# red "over budget" screen, which is a bad first impression for the listing).
+BUDGET="${SCREENSHOT_BUDGET:-7500}"
 
 echo "==> Building (Debug, simulator)"
 xcodebuild -project "$REPO_ROOT/ios/PocketLocket.xcodeproj" \
@@ -83,7 +109,9 @@ mkdir -p "$OUT_DIR"
 capture() { # capture <index> <tab> <name> [wait_seconds]
   local idx="$1" tab="$2" name="$3" wait="${4:-6}"
   xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
-  xcrun simctl launch "$UDID" "$BUNDLE_ID" -tab "$tab" >/dev/null
+  # ${arr[@]+"${arr[@]}"} is the bash 3.2-safe expansion under set -u.
+  # -skipLock: Debug-only gate bypass for headless capture (BiometricGate).
+  xcrun simctl launch "$UDID" "$BUNDLE_ID" -tab "$tab" -skipLock -budget "$BUDGET" ${SEED_ARGS[@]+"${SEED_ARGS[@]}"} >/dev/null
   sleep "$wait"
   xcrun simctl io "$UDID" screenshot "$OUT_DIR/${idx}-${name}.png"
   echo "    saved ${idx}-${name}.png"

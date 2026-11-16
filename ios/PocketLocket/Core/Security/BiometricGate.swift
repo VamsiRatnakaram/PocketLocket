@@ -22,6 +22,17 @@ final class BiometricGate {
         if Self.isRunningTests {
             state = .unlocked
         }
+        #if DEBUG
+        // Headless screenshot runs can't answer the system passcode sheet, and
+        // on some simulator runtimes .deviceOwnerAuthentication is evaluatable
+        // with a passcode enrolled. This flag (used only by
+        // scripts/appstore-screenshots.sh) skips the gate. Compiled out of
+        // Release; deliberately not keyed off XCTestConfigurationFilePath,
+        // which would also flip AppModelContainer to an in-memory store.
+        if CommandLine.arguments.contains("-skipLock") {
+            state = .unlocked
+        }
+        #endif
     }
 
     private static func makeAuthenticationContext() -> LAContext {

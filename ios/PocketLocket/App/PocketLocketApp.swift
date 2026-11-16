@@ -7,6 +7,12 @@ struct PocketLocketApp: App {
     @State private var router = AppRouter()
     @AppStorage("appearanceMode") private var appearanceModeRaw = AppearanceMode.system.rawValue
 
+    init() {
+        #if DEBUG
+        DebugLaunch.seedSimpleFINIfNeeded()
+        #endif
+    }
+
     private var appearanceMode: AppearanceMode {
         AppearanceMode(rawValue: appearanceModeRaw) ?? .system
     }

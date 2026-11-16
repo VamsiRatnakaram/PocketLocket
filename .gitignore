@@ -9,14 +9,23 @@ ios/PocketLocket.xcodeproj/
 ios/Config/Secrets.xcconfig
 
 # Local release checklist; contains account-specific App Store notes.
-docs/LOCAL_TESTFLIGHT_RELEASE.md
-docs/APP_STORE_RELEASE_KIT.md
+docs/release/LOCAL_TESTFLIGHT_RELEASE.md
+docs/release/APP_STORE_RELEASE_KIT.md
 
 # Open-source plan; names the Team ID location and old commit SHAs.
+docs/release/OPEN_SOURCE_HANDOFF.md
+
+# Safety net: these files moved to docs/release/ on 2026-11-15. Keep the old
+# paths ignored in case an editor restores a copy at the pre-move location.
+docs/LOCAL_TESTFLIGHT_RELEASE.md
+docs/APP_STORE_RELEASE_KIT.md
 docs/OPEN_SOURCE_HANDOFF.md
 
 # Generated App Store screenshots
 screenshots/
+
+# Local-only demo credentials for the screenshot script (SimpleFIN access URL)
+scripts/demo-token.txt
 build/
 
 # Xcode / SwiftPM build artifacts

@@ -30,6 +30,9 @@ struct MainTabView: View {
                     context.rollback()
                 }
                 try? await SyncService.shared.refresh(context: context)
+                #if DEBUG
+                DebugLaunch.applyScreenshotFixups(context: context)
+                #endif
             }
     }
 

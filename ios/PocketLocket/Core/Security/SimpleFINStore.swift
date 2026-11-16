@@ -37,4 +37,16 @@ enum SimpleFINStore {
         cached = nil
         try? KeychainStore.remove(key)
     }
+
+    #if DEBUG
+    /// Debug-only seeding for the App Store screenshot pipeline
+    /// (`scripts/appstore-screenshots.sh` → `DebugLaunch`). Stores the access
+    /// URL *without* biometric access control so a headless capture run never
+    /// trips the system passcode sheet. Never compiled into Release.
+    static func seedForScreenshots(_ accessURL: String) {
+        cached = accessURL
+        guard let data = accessURL.data(using: .utf8) else { return }
+        try? KeychainStore.set(data, for: key)
+    }
+    #endif
 }
