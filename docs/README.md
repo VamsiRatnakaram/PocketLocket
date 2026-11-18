@@ -9,6 +9,7 @@ deeper.
 | Document | Audience | What it covers |
 |----------|----------|----------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Reviewers, future maintainers | Components, data/security model, end-to-end flows, key design decisions |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Outside contributors | Setup, the XcodeGen golden rule, test expectations, privacy invariants, PR rules |
 | [HANDOFF.md](HANDOFF.md) | You, on a new Mac | Moving the project to another machine, prerequisites, first-time setup, everyday commands, current state |
 | [../ios/PocketLocketWidget/README.md](../ios/PocketLocketWidget/README.md) | Anyone working on widgets | What each widget shows; how to add, test (layout render tests, simulator, URL scheme), and debug the extension process |
 | [../privacy-policy/README.md](../privacy-policy/README.md) | Release prep | Publishing the privacy policy + support pages via GitHub Pages for App Store Connect |

@@ -5,24 +5,23 @@ The text mirrors the in-app policy in
 `ios/PocketLocket/Features/Settings/PrivacyPolicyView.swift` — if you edit one,
 edit both.
 
-## Publish with GitHub Pages (free, ~2 minutes)
+## Published from this repo via GitHub Pages
 
-1. Create a **public** GitHub repo, e.g. `pocketlocket-site`.
-2. Copy `index.html` to the repo root (or keep the folder and enable Pages on
-   `/privacy-policy`).
-3. Push, then in the repo: **Settings → Pages → Source: Deploy from a branch →
-   `main` / `(root)` → Save**.
-4. After a minute your URL is live at:
-   `https://<your-github-username>.github.io/pocketlocket-site/`
+The site is served straight from the `main` branch of
+`https://github.com/VamsiRatnakaram/PocketLocket` — no separate site repo.
 
-Use that HTTPS URL for both the **Privacy Policy URL** and (if you like) the
-**Support URL** fields in App Store Connect.
+1. In the repo: **Settings → Pages → Build and deployment → Source: Deploy
+   from a branch** → branch `main`, folder **`/privacy-policy`** → Save.
+2. After a minute the pages are live at:
+   - Privacy policy: `https://vamsiratnakaram.github.io/PocketLocket/`
+   - Support page: `https://vamsiratnakaram.github.io/PocketLocket/support.html`
 
-## Support page
+If Pages is not yet enabled, do the two clicks above; pushes to
+`privacy-policy/` then republish automatically.
 
-`support.html` is already written and ships alongside `index.html`, so the
-**Support URL** can be `https://<user>.github.io/<repo>/support.html` — or
-simply reuse the policy URL for both fields.
+Use those HTTPS URLs for the **Privacy Policy URL** and **Support URL** fields
+in App Store Connect (ASC allows the same URL for both, but the support page
+above is nicer).
 
 ## Before submitting
 

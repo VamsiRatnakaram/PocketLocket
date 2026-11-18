@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # macOS 27 image with Xcode 27.x preinstalled (actions/runner-images
+    # xcode-27-arm64). Pinning 27.2 (27B52) matches the toolchain the app is
+    # developed and released with.
+    runs-on: xcode-27-arm64
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27.2
+        run: sudo xcode-select -s /Applications/Xcode_27.2.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        # The .xcodeproj is generated and git-ignored — always regenerate from
+        # ios/project.yml (the golden rule; see docs/HANDOFF.md §3).
+        working-directory: ios
+        run: xcodegen generate --spec project.yml --project .
+
+      - name: Run tests
+        # CODE_SIGNING_ALLOWED=NO: no developer account on CI.
+        # UISnapshotTests is skipped: it can stall in headless CI, matching the
+        # local validation command in docs/HANDOFF.md.
+        run: |
+          xcodebuild test \
+            -project ios/PocketLocket.xcodeproj \
+            -scheme PocketLocket \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=27.2' \
+            CODE_SIGNING_ALLOWED=NO \
+            -skip-testing:PocketLocketTests/UISnapshotTests
