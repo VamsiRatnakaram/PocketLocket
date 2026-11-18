@@ -1,5 +1,9 @@
 # PocketLocket
 
+[![Tests](https://github.com/VamsiRatnakaram/PocketLocket/actions/workflows/tests.yml/badge.svg)](https://github.com/VamsiRatnakaram/PocketLocket/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-iOS%2017%2B-blue)
+
 A private, **on-device** personal budgeting app for iPhone. The home screen is a
 **spend-categorizing ring**. All of your financial data is stored **only on your
 device** (SwiftData + Keychain) — there is no backend, no account to create, and
@@ -64,7 +68,9 @@ There is intentionally **no backend** — the app is entirely self-contained.
 
 ## Prerequisites
 
-- macOS with **Xcode 16.1+** (built and tested with Xcode 26).
+- macOS with **Xcode 27** (developed and CI-tested with Xcode 27.2; the release
+  checklist targets the App Store Connect-supported release toolchain). The app's
+  iOS 17 deployment target means older Xcode 26.x still builds it.
 - *(Optional)* A **SimpleFIN Bridge** subscription for auto-sync: https://bridge.simplefin.org
 - No Plaid, Supabase, or any other account is required.
 
@@ -133,8 +139,9 @@ App Store Connect currently accepts.
 
 > The full release procedure — including why a beta-built archive is
 > unrecoverable and why `xcodebuild ... archive` produces a *development*-signed
-> archive that App Store Connect rejects — lives in
-> [`docs/release/LOCAL_TESTFLIGHT_RELEASE.md`](docs/release/LOCAL_TESTFLIGHT_RELEASE.md).
+> archive that App Store Connect rejects — lives in the maintainer's local
+> release checklist (`docs/release/LOCAL_TESTFLIGHT_RELEASE.md`, git-ignored
+> because it references account-specific values).
 
 ---
 
@@ -148,9 +155,8 @@ trusting your developer certificate in **Settings → General → VPN & Device
 Management**.
 
 The app's deployment target is **iOS 17.0**, so the same binary runs on iOS 17
-through 27 unchanged. See
-[`docs/release/LOCAL_TESTFLIGHT_RELEASE.md`](docs/release/LOCAL_TESTFLIGHT_RELEASE.md)
-for the current Xcode/SDK toolchain notes and simulator-runtime pinning caveats.
+through 27 unchanged. See [docs/HANDOFF.md](docs/HANDOFF.md) §3 for the current
+Xcode/SDK toolchain notes and simulator-runtime pinning caveats.
 
 ---
 
@@ -179,8 +185,9 @@ shared between installs). Distribution options:
 
 - **This Mac / your own iPhone:** run from Xcode (free; 7-day signing on device).
 - **TestFlight** (up to 10,000 testers via a private link): requires the paid
-  Apple Developer Program ($99/yr). This is a private beta, **not** an App Store
-  release.
+  Apple Developer Program ($99/yr).
+- **App Store:** PocketLocket is being prepared for its App Store release —
+  check back soon for the download link.
 - **AltStore / SideStore:** free sideloading with weekly re-signing.
 
 ---
@@ -190,7 +197,9 @@ shared between installs). Distribution options:
 | Document | What it covers |
 |----------|----------------|
 | [docs/README.md](docs/README.md) | Index of all documentation, with audience and visibility notes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor rules: setup, XcodeGen golden rule, tests, privacy invariants, PR rules |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full technical breakdown: components, data/security model, flows, design decisions |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | Picking the project back up on another Mac: setup, everyday commands, current state |
 | [ios/PocketLocketWidget/README.md](ios/PocketLocketWidget/README.md) | Widget guide: what each widget shows, how to add, test, and debug them |
+| [privacy-policy/](privacy-policy/index.html) | Public privacy policy + support pages (served via GitHub Pages) |
 | `docs/release/` | Release checklists and App Store copy (git-ignored — account-specific) |
