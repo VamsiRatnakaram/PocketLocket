@@ -5,19 +5,20 @@ The text mirrors the in-app policy in
 `ios/PocketLocket/Features/Settings/PrivacyPolicyView.swift` — if you edit one,
 edit both.
 
-## Published from this repo via GitHub Pages
+## Published from this repo via GitHub Pages (already enabled)
 
 The site is served straight from the `main` branch of
 `https://github.com/VamsiRatnakaram/PocketLocket` — no separate site repo.
 
-1. In the repo: **Settings → Pages → Build and deployment → Source: Deploy
-   from a branch** → branch `main`, folder **`/privacy-policy`** → Save.
-2. After a minute the pages are live at:
-   - Privacy policy: `https://vamsiratnakaram.github.io/PocketLocket/`
-   - Support page: `https://vamsiratnakaram.github.io/PocketLocket/support.html`
+- Source: **Settings → Pages → Build and deployment → Deploy from a branch** →
+  branch `main`, folder **`/ (root)`**. A `.nojekyll` file at the repo root
+  makes Pages serve these files as-is (no Jekyll processing).
+- Live URLs (note the `/privacy-policy/` path — the folder name is part of the
+  URL when deploying from root):
+  - Privacy policy: `https://vamsiratnakaram.github.io/PocketLocket/privacy-policy/`
+  - Support page: `https://vamsiratnakaram.github.io/PocketLocket/privacy-policy/support.html`
 
-If Pages is not yet enabled, do the two clicks above; pushes to
-`privacy-policy/` then republish automatically.
+Pushes to this folder republish automatically (~1 minute).
 
 Use those HTTPS URLs for the **Privacy Policy URL** and **Support URL** fields
 in App Store Connect (ASC allows the same URL for both, but the support page
